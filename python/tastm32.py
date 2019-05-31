@@ -234,6 +234,7 @@ class TAStm32():
             if run.transitions != None:
                 for transition in run.transitions:
                     self.send_transition(run.id, *transition)
+        runsOver = 0
         while True:
             try:
                 c = self.read(1)
@@ -245,6 +246,8 @@ class TAStm32():
                     if numBytes > int_buffer:
                         print ("WARNING: High latch rate detected: " + str(numBytes))
                 for run in runs:
+                    if run.over:
+                        continue
                     latches = c.count(run.id)
                     bulk = c.count(run.id.lower())
                     missed = c.count(b'\xB0')
@@ -277,6 +280,11 @@ class TAStm32():
                         self.write(run_id.lower())
                     if run.frame > run.framemax:
                         print("Run Finished")
+                        runsOver++
+                        run.over = True
+                if runsOver == len(runs):
+                    print("All Runs Finished")
+                    break
             except serial.SerialException:
                 print('ERROR: Serial Exception caught!')
                 break

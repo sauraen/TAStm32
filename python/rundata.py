@@ -12,6 +12,7 @@ class RunData():
         self.buffer = []
         self.update()
         self.transitions = []
+        self.over = False
 
     def reset(self):
         self.frame = 0
