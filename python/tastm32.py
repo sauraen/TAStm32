@@ -12,6 +12,33 @@ import argparse_helper
 
 import r08, r16m, m64
 
+
+# for ESA
+import pika
+import json
+import datetime
+with open('rabbitmq_settings.json', 'r') as f:
+    rmqs = json.load(f)
+
+def buttonPress(msg):
+    credentials = pika.PlainCredentials(rmqs['user'], rmqs['pass'])
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host=rmqs['host'],port=rmqs['port'],credentials=credentials))
+    channel = connection.channel()
+    channel.queue_declare(queue='BigButton',durable=True)
+    button_json = {
+        "button_id":5,
+        "button_message_count":msg,
+        "time":[
+            {
+                "unix":time.time(),
+                "iso":datetime.datetime.now().isoformat(" ")
+            }
+        ]
+    }
+    channel.basic_publish(exchange='', routing_key='BigButton', body=json.dumps(button_json))
+    print(button_json)
+
+
 DEBUG = False
 
 int_buffer = 2048 # internal buffer size on replay device
@@ -310,10 +337,14 @@ def main():
             dev.send_transition(run_id, *transition)
     print('Main Loop Start')
     dev.power_on()
+    buttonPress(1)
     dev.main_loop()
     print('Exiting')
+    buttonPress(2)
     dev.ser.close()
     sys.exit(0)
+
+
 
 if __name__ == '__main__':
     main()
