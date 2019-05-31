@@ -280,7 +280,7 @@ class TAStm32():
                         self.write(run_id.lower())
                     if run.frame > run.framemax:
                         print("Run Finished")
-                        runsOver++
+                        runsOver += 1
                         run.over = True
                 if runsOver == len(runs):
                     print("All Runs Finished")
