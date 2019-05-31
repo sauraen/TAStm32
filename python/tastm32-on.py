@@ -7,6 +7,8 @@ import tastm32
 parser = argparse_helper.audio_parser()
 args = parser.parse_args()
 
+tastm32.DEBUG = args.debug
+
 if args.serial == None:
     dev = tastm32.TAStm32(serial_helper.select_serial_port())
 else:

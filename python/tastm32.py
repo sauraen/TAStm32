@@ -18,6 +18,8 @@ int_buffer = 2048 # internal buffer size on replay device
 latches_per_bulk_command = 28
 packets = 4
 
+DEBUG = False
+
 int_to_byte_struct = struct.Struct('B')
 def int_to_byte(interger):
     return int_to_byte_struct.pack(interger)
