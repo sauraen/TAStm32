@@ -345,6 +345,7 @@ def main_multi(dev, args, data):
         blankframe = b'\x00' * len(args.players)
     runs = []
     run = rundata.RunData(buffer, run_id)
+    run.setBlankFrames(args.blank)
     run.transitions = args.transition
     runs.append(run)
     print('Main Loop Start')
