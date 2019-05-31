@@ -417,7 +417,7 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 					case 'T': // Transition
 						ss = SERIAL_TRANSITION;
 						break;
-					case 'P': // Transition
+					case 'P': // Power controls
 						ss = SERIAL_POWER;
 						break;
 					case '\xDF':
