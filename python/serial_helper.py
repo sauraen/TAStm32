@@ -3,13 +3,13 @@ import serial
 import serial.tools.list_ports
 import sys
 
-device_vid = 0x0B07
-device_pid = 0x07A5
+tastm32_device_vid = 0x0B07
+tastm32_device_pid = 0x07A5
 
 def list_serial_ports():
     return serial.tools.list_ports.comports()
 
-def select_serial_port(ports=None):
+def select_serial_port(ports=None, device_vid=tastm32_device_vid, device_pid=tastm32_device_pid):
     if ports == None:
         ports = list_serial_ports()
     if len(ports) == 0:
