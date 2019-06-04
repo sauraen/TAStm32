@@ -22,13 +22,94 @@ else:
     import readline
     
 dev = None
+runStatuses = [] # list of currently active runs and their statuses
 selected_run = -1
+
+CONTROLLER_NORMAL = 0  # 1 controller
+CONTROLLER_Y = 1  #: y-cable [like half a multitap]
+CONTROLLER_MULTITAP = 2  #: multitap (Ports 1 and 2 only) [snes only]
+CONTROLLER_FOUR_SCORE = 3  #: four-score [nes-only peripheral that we don't do anything with]
+
+# Default Options for new runs
+DEFAULTS = {'contype': 'normal',
+            'overread': 0,
+            'dpcmfix': 'False',
+            'windowmode': 0,
+            'dummyframes': 0}
 
 # Readline Config
 def complete(text, state):
     return (glob.glob(text + '*') + [None])[state]
 def complete_nostate(text, *ignored):
     return glob.glob(text + '*') + [None]
+    
+def isConsolePortAvailable(port, type):
+    return True  # passed all checks
+    
+    # types implemented int,str,float,bool
+# constraints only work on int and float
+def get_input(type, prompt, default='', constraints={}):
+    while True:
+        try:
+            data = input(prompt)
+            if data == default == None:
+                print('ERROR: No Default Configured')
+                continue
+            if data == '' and default != '':
+                return default
+            if type == 'int':
+                data = int(data)
+            if type == 'float':
+                data = float(data)
+            if 'min' in constraints:
+                if data < constraints['min']:
+                    print('ERROR: Input less than Minimium of ' + str(constraints['min']))
+                    continue
+            if 'max' in constraints:
+                if data > constraints['max']:
+                    print('ERROR: Input greater than maximum of ' + str(constraints['max']))
+                    continue
+            if 'interval' in constraints:
+                if data % constraints['interval'] != 0:
+                    print('ERROR: Input does not match interval of ' + str(constraints['max']))
+                    continue
+            if type == 'int':
+                try:
+                    return int(data)
+                except ValueError:
+                    print('ERROR: Expected integer')
+            if type == 'float':
+                try:
+                    return float(data)
+                except ValueError:
+                    print('ERROR: Expected float')
+            if type == 'str':
+                try:
+                    return str(data)
+                except ValueError:
+                    print('ERROR: Expected string')
+            if type == 'bool':
+                if data.lower() in (1,'true','y','yes'):
+                    return True
+                elif data.lower() in (0,'false','n','no'):
+                    return False
+                else:
+                    print('ERROR: Expected boolean')
+        except EOFError:
+            # print('EOF')
+            return None
+            
+class RunStatus(object):
+    tasRun = None
+    inputBuffer = None
+    customCommand = None
+    isRunModified = None
+    dpcmState = None
+    windowState = None
+    frameCount = 0
+    defaultSave = None
+    isLoadedRun = False
+    runOver = False
 
 # return false exits the function
 # return true exits the whole CLI
@@ -36,7 +117,7 @@ class CLI(cmd.Cmd):
     def __init__(self):
         cmd.Cmd.__init__(self)
         self.setprompt()
-        self.intro = "\nWelcome to the TASLink command-line interface!\nType 'help' for a list of commands.\n"
+        self.intro = "\nWelcome to the TAS command-line interface!\nType 'help' for a list of commands.\n"
     
     def setprompt(self):
         if selected_run == -1:
@@ -44,10 +125,10 @@ class CLI(cmd.Cmd):
         else:
             if runStatuses[selected_run].isRunModified:
                 self.prompt = "TAStm32[#" + str(selected_run + 1) + "][" + str(
-                    runStatuses[selected_run].tasRun.dummyFrames) + "f][UNSAVED]> "
+                    runStatuses[selected_run].dummyFrames) + "f][UNSAVED]> "
             else:
                 self.prompt = "TAStm32[#" + str(selected_run + 1) + "][" + str(
-                    runStatuses[selected_run].tasRun.dummyFrames) + "f]> "
+                    runStatuses[selected_run].dummyFrames) + "f]> "
 
     def postcmd(self, stop, line):
         self.setprompt()
@@ -203,13 +284,13 @@ class CLI(cmd.Cmd):
             return False
 
         # create TASRun object and assign it to our global, defined above
-        tasrun = TASRun(numControllers, portsList, controllerType, controllerBits, overread, window, fileName, dummyFrames, dpcmFix)
+        #tasrun = TASRun(numControllers, portsList, controllerType, controllerBits, overread, window, fileName, dummyFrames, dpcmFix)
 
         # create the RunStatus object
         rs = RunStatus()
-        rs.customCommand = setupCommunication(tasrun)
-        rs.inputBuffer = tasrun.getInputBuffer(rs.customCommand)
-        rs.tasRun = tasrun
+        rs.customCommand = None
+        rs.inputBuffer = None
+        rs.dummyFrames = dummyFrames
         rs.isRunModified = True
         rs.dpcmState = dpcmFix
         rs.windowState = window
@@ -218,13 +299,13 @@ class CLI(cmd.Cmd):
         runStatuses.append(rs)
 
         selected_run = len(runStatuses) - 1
-        send_frames(selected_run, prebuffer)
+        #send_frames(selected_run, prebuffer)
         print("Run is ready to go!")
         
         # start the device in its own thread
         # TODO: gather all of the necessary information
-        t = threading.Thread(target=tastm32.main_multi, args=(dev, cli_args, data))
-        t.start()
+        ##t = threading.Thread(target=tastm32.main_multi, args=(dev, cli_args, data))
+        ##t.start()
 
 def setup():
     # high priority
@@ -247,6 +328,9 @@ def setup():
 def detect_and_choose_device():
     ''' 0 = tastm32, 1 = psoc, 2 = taslink '''
     # TODO: scan and list all available devices. then, let the user choose
+    # TAStm32: hardcoded as default into serial_helper
+    # TASLink: VID=0x0403, PID=0x6010
+    # PSoC5: VID=0x04b4, PID=0xf232
     return 0
 
 def main():
