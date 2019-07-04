@@ -24,7 +24,7 @@ def buttonPress(msg):
     credentials = pika.PlainCredentials(rmqs['user'], rmqs['pass'])
     connection = pika.BlockingConnection(pika.ConnectionParameters(host=rmqs['host'],port=rmqs['port'],credentials=credentials))
     channel = connection.channel()
-    channel.queue_declare(queue='BigButton',durable=True)
+    channel.exchange_declare(exchange='bigbutton',durable=True)
     button_json = {
         "button_id":5,
         "button_message_count":msg,
@@ -35,7 +35,7 @@ def buttonPress(msg):
             }
         ]
     }
-    channel.basic_publish(exchange='', routing_key='BigButton', body=json.dumps(button_json))
+    channel.basic_publish(exchange='', routing_key='bigbutton', body=json.dumps(button_json))
     print(button_json)
 
 
