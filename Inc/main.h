@@ -78,6 +78,17 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void DisableAllInterrupts();
+void DisableConsoleInterrupts();
+void EnableSNESInterrupts();
+void EnableGCN64Interrupts();
+void ClearAllInterrupts();
+void ClearTimerInterrupts();
+void ClearConsoleInterrupts();
+
+void ReconfigureGPIOForSNES();
+void ReconfigureGPIOForGCN64();
+
 void ReInitClockTimers(void);
 void JumpToBootLoader(void);
 
@@ -111,6 +122,7 @@ void my_wait_us_asm(int n);
 #define P2_DATA_0_GPIO_Port GPIOC
 #define P2_DATA_2_Pin GPIO_PIN_9
 #define P2_DATA_2_GPIO_Port GPIOC
+#define P2_DATA_2_EXTI_IRQn EXTI9_5_IRQn
 #define SNES_RESET_Pin GPIO_PIN_9
 #define SNES_RESET_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
@@ -125,6 +137,7 @@ void my_wait_us_asm(int n);
 #define V2_DATA_1_GPIO_Port GPIOC
 #define V2_DATA_0_Pin GPIO_PIN_12
 #define V2_DATA_0_GPIO_Port GPIOC
+#define V2_DATA_0_EXTI_IRQn EXTI15_10_IRQn
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
 #define V1_CLOCK_Pin GPIO_PIN_4
@@ -135,6 +148,7 @@ void my_wait_us_asm(int n);
 #define V1_DATA_1_GPIO_Port GPIOB
 #define V1_DATA_0_Pin GPIO_PIN_7
 #define V1_DATA_0_GPIO_Port GPIOB
+#define V1_DATA_0_EXTI_IRQn EXTI9_5_IRQn
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

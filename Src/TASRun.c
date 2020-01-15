@@ -279,27 +279,3 @@ uint8_t AddFrame(TASRun *tasrun, RunData (frame)[MAX_CONTROLLERS][MAX_DATA_LANES
 
 	return 1;
 }
-
-void SetN64Mode()
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	GPIO_InitStruct.Pin = P1_DATA_2_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-
-	HAL_GPIO_Init(P1_DATA_2_GPIO_Port, &GPIO_InitStruct);
-}
-
-void SetSNESMode()
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	GPIO_InitStruct.Pin = P1_DATA_2_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-
-	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-}
-

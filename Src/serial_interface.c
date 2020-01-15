@@ -78,10 +78,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 					case 'R': // Reset/clear all configuration
 
 						// disable interrupts on latch/clock/data for now
-						HAL_NVIC_DisableIRQ(EXTI0_IRQn);
-						HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-						HAL_NVIC_DisableIRQ(EXTI4_IRQn);
-						HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+						DisableConsoleInterrupts();
 
 						Disable8msTimer();
 						DisableP1ClockTimer();
@@ -89,42 +86,8 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 						DisableTrainTimer();
 
 						// clear all interrupts
-						while (HAL_NVIC_GetPendingIRQ(EXTI0_IRQn))
-						{
-							__HAL_GPIO_EXTI_CLEAR_IT(P1_CLOCK_Pin);
-							HAL_NVIC_ClearPendingIRQ(EXTI0_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(EXTI1_IRQn))
-						{
-							__HAL_GPIO_EXTI_CLEAR_IT(P1_LATCH_Pin);
-							HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(EXTI4_IRQn))
-						{
-							__HAL_GPIO_EXTI_CLEAR_IT(P1_DATA_2_Pin);
-							HAL_NVIC_ClearPendingIRQ(EXTI4_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(EXTI9_5_IRQn))
-						{
-							__HAL_GPIO_EXTI_CLEAR_IT(P2_CLOCK_Pin);
-							HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(TIM3_IRQn))
-						{
-							HAL_NVIC_ClearPendingIRQ(TIM3_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(TIM6_DAC_IRQn))
-						{
-							HAL_NVIC_ClearPendingIRQ(TIM6_DAC_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(TIM7_IRQn))
-						{
-							HAL_NVIC_ClearPendingIRQ(TIM7_IRQn);
-						}
-						while (HAL_NVIC_GetPendingIRQ(TIM1_UP_TIM10_IRQn))
-						{
-							HAL_NVIC_ClearPendingIRQ(TIM1_UP_TIM10_IRQn);
-						}
+						ClearConsoleInterrupts();
+						ClearTimerInterrupts();
 
 						// important to reset our state
 						recentLatch = 0;
@@ -335,13 +298,11 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 
 					if(c == CONSOLE_NES || c == CONSOLE_SNES)
 					{
-						HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-						HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-						HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+						EnableSNESInterrupts();
 					}
 					else if(c == CONSOLE_N64 || c == CONSOLE_GC)
 					{
-						HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+						EnableGCN64Interrupts();
 					}
 				}
 
@@ -353,22 +314,22 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				{
 					case 'M': // setup N64
 						TASRunSetConsole(instance.tasrun, CONSOLE_N64);
-						SetN64Mode();
+						ReconfigureIOForGCN64();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'G': // setup Gamecube
 						TASRunSetConsole(instance.tasrun, CONSOLE_GC);
-						SetN64Mode();
+						ReconfigureIOForGCN64();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'S': // setup SNES
 						TASRunSetConsole(instance.tasrun, CONSOLE_SNES);
-						SetSNESMode();
+						ReconfigureIOForSNES();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'N': // setup NES
 						TASRunSetConsole(instance.tasrun, CONSOLE_NES);
-						SetSNESMode();
+						ReconfigureIOForSNES();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					default: // Error: console type not understood

@@ -56,63 +56,58 @@ typedef struct __attribute__((packed))
 
 } GCControllerData; // all bits are in the correct order... except for the analog
 
+extern const GPIO_TypeDef *GCN64_Ctrlr_Port[4];
+extern const uint32_t GCN64_Ctrlr_Pin[4];
+extern const uint32_t GCN64_Ctrlr_InMask[4];
+extern const uint32_t GCN64_Ctrlr_OutSet[4];
 
-maybe_unused static void GCN64_SetPortInput()
+maybe_unused static void GCN64_SetPortInput(uint8_t player)
 {
-	// port C4 to input mode
-	const uint32_t MODER_SLOT = (P1_DATA_2_Pin*P1_DATA_2_Pin);
-	const uint32_t MODER_MASK = 0b11 * MODER_SLOT;
-	const uint32_t MODER_NEW_VALUE = GPIO_MODE_INPUT * MODER_SLOT;
-
-	P1_DATA_2_GPIO_Port->MODER = (P1_DATA_2_GPIO_Port->MODER & ~MODER_MASK) | MODER_NEW_VALUE;
+	GCN64_Ctrlr_Port[player]->MODER &= GCN64_Ctrlr_InMask[player];
 }
 
-maybe_unused static void GCN64_SetPortOutput()
+maybe_unused static void GCN64_SetPortOutput(uint8_t player)
 {
-	// port C4 to output mode
-	const uint32_t MODER_SLOT = (P1_DATA_2_Pin*P1_DATA_2_Pin);
-	const uint32_t MODER_MASK = 0b11 * MODER_SLOT;
-	const uint32_t MODER_NEW_VALUE = GPIO_MODE_OUTPUT_PP * MODER_SLOT;
-	P1_DATA_2_GPIO_Port->MODER = (P1_DATA_2_GPIO_Port->MODER & ~MODER_MASK) | MODER_NEW_VALUE;
+	GCN64_Ctrlr_Port[player]->MODER |= GCN64_Ctrlr_OutSet[player];
 }
 
-maybe_unused static void GCN64_Send0()
+maybe_unused static void GCN64_Send0(uint8_t player)
 {
-	P1_DATA_2_GPIO_Port->BSRR = P1_DATA_2_Pin<<16;
+	GCN64_Ctrlr_Port[player]->BSRR = GCN64_Ctrlr_Pin[player]<<16;
 	my_wait_us_asm(3);
-	P1_DATA_2_GPIO_Port->BSRR = P1_DATA_2_Pin;
+	GCN64_Ctrlr_Port[player]->BSRR = GCN64_Ctrlr_Pin[player];
 	my_wait_us_asm(1);
 }
-maybe_unused static void GCN64_Send1()
+maybe_unused static void GCN64_Send1(uint8_t player)
 {
-	P1_DATA_2_GPIO_Port->BSRR = P1_DATA_2_Pin<<16;
+	GCN64_Ctrlr_Port[player]->BSRR = GCN64_Ctrlr_Pin[player]<<16;
 	my_wait_us_asm(1);
-	P1_DATA_2_GPIO_Port->BSRR = P1_DATA_2_Pin;
+	GCN64_Ctrlr_Port[player]->BSRR = GCN64_Ctrlr_Pin[player];
 	my_wait_us_asm(3);
 }
-maybe_unused static void GCN64_SendStop()
+maybe_unused static void GCN64_SendStop(uint8_t player)
 {
-	P1_DATA_2_GPIO_Port->BSRR = P1_DATA_2_Pin<<16;
+	GCN64_Ctrlr_Port[player]->BSRR = GCN64_Ctrlr_Pin[player]<<16;
 	my_wait_us_asm(1);
-	P1_DATA_2_GPIO_Port->BSRR = P1_DATA_2_Pin;
+	GCN64_Ctrlr_Port[player]->BSRR = GCN64_Ctrlr_Pin[player];
 }
-maybe_unused static void GCN64_SendData(uint8_t *data, uint8_t bytes)
+maybe_unused static void GCN64_SendData(uint8_t *data, uint8_t bytes, uint8_t player)
 {
 	while(bytes){
 		uint8_t d = *data;
 		for(uint8_t b=0; b<8; ++b){
-			(d & 0x80) ? GCN64_Send1() : GCN64_Send0();
+			(d & 0x80) ? GCN64_Send1(player) : GCN64_Send0(player);
 			d <<= 1;
 		}
 		++data;
 		--bytes;
 	}
-	GCN64_SendStop();
+	GCN64_SendStop(player);
 }
 
-uint32_t GCN64_ReadCommand();
-void N64_SendIdentity();
-void GCN_SendIdentity();
-void GCN_SendOrigin();
+uint32_t GCN64_ReadCommand(uint8_t player);
+void N64_SendIdentity(uint8_t player);
+void GCN_SendIdentity(uint8_t player);
+void GCN_SendOrigin(uint8_t player);
 
 #endif

@@ -156,6 +156,4 @@ void ExtractDataAndAdvance(RunData (rd)[MAX_CONTROLLERS][MAX_DATA_LANES], TASRun
 RunData (*GetNextFrame(TASRun *tasrun))[MAX_CONTROLLERS][MAX_DATA_LANES];
 int ExtractDataAndAddFrame(TASRun *tasrun, uint8_t *buffer, uint32_t n);
 
-void SetN64Mode();
-void SetSNESMode();
 #endif

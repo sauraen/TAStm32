@@ -140,6 +140,7 @@ Console c = 0;
 void my_wait_us_asm(int n);
 uint8_t UART2_OutputFunction(uint8_t *buffer, uint16_t n);
 HAL_StatusTypeDef Simple_Transmit(UART_HandleTypeDef *huart);
+void GCN64CommandStart(uint8_t player);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -480,97 +481,7 @@ void EXTI1_IRQHandler(void)
 void EXTI4_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI4_IRQn 0 */
-	// P1_DATA_2 == N64_DATA
-	// Read 64 command
-	TASRun *tasrun = TASRunGetByIndex(RUN_A);
-	Console c = TASRunGetConsole(tasrun);
-	uint64_t temp = 0;
-
-	__disable_irq();
-	uint32_t cmd;
-	RunData (*frame)[MAX_CONTROLLERS][MAX_DATA_LANES] = NULL;
-
-	cmd = GCN64_ReadCommand();
-
-	my_wait_us_asm(2); // wait a small amount of time before replying
-
-	//-------- SEND RESPONSE
-	GCN64_SetPortOutput();
-
-	switch(cmd)
-	{
-	  case 0x00: // identity
-		  if(c == CONSOLE_N64)
-		  {
-			  N64_SendIdentity();
-		  }
-		  else if(c == CONSOLE_GC)
-		  {
-			  GCN_SendIdentity();
-		  }
-		  break;
-	  case 0xFF: // N64 reset
-		  N64_SendIdentity();
-		  break;
-	  case 0x01: // poll for N64 state
-		  frame = GetNextFrame(tasrun);
-		  if(frame == NULL) // buffer underflow
-		  {
-			  GCN64_SendData((uint8_t*)&temp, 4); // send blank controller data
-		  }
-		  else
-		  {
-			  GCN64_SendData((uint8_t*)&frame[0][0][0].n64_data, 4);
-		  }
-		  break;
-	  case 0x41: //gamecube origin call
-		  GCN_SendOrigin();
-		  break;
-	  case 0x400302:
-	  case 0x400300:
-	  case 0x400301:
-		  frame = GetNextFrame(tasrun);
-		  if(frame == NULL) // buffer underflow
-		  {
-				GCControllerData *gc_data = (GCControllerData*)&temp;
-				gc_data->a_x_axis = 128;
-				gc_data->a_y_axis = 128;
-				gc_data->c_x_axis = 128;
-				gc_data->c_y_axis = 128;
-				gc_data->beginning_one = 1;
-				GCN64_SendData((uint8_t*)&temp, 8); // send blank controller data
-		  }
-		  else
-		  {
-			  frame[0][0][0].gc_data.beginning_one = 1;
-			  GCN64_SendData((uint8_t*)&frame[0][0][0].gc_data, 8);
-		  }
-		  break;
-	  case 0x02:
-	  case 0x03:
-	  default:
-		  // we do not process the read and write commands (memory pack)
-		  break;
-	}
-	//-------- DONE SENDING RESPOSE
-
-	GCN64_SetPortInput();
-
-	__enable_irq();
-
-	switch(cmd)
-	{
-		case 0x01: // N64 poll
-		case 0x400302: // GC poll
-		case 0x400300: // GC poll
-		case 0x400301: // GC poll
-			serial_interface_output((uint8_t*)"A", 1);
-
-			if(frame == NULL) // there was a buffer underflow
-				serial_interface_output((uint8_t*)"\xB2", 1);
-		break;
-	}
-
+	GCN64CommandStart(0);
   /* USER CODE END EXTI4_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_4);
   /* USER CODE BEGIN EXTI4_IRQn 1 */
@@ -584,21 +495,43 @@ void EXTI4_IRQHandler(void)
 void EXTI9_5_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
-	// P2_CLOCK
-	if(!p2_clock_filtered && p2_current_bit < 17) // sanity check... but 32 or more bits should never be read in a single latch!
+	TASRun *tasrun = TASRunGetByIndex(RUN_A);
+	Console c = TASRunGetConsole(tasrun);
+	if(c == CONSOLE_N64 || c == CONSOLE_GC)
 	{
-		if(clockFix)
+		if(__HAL_GPIO_EXTI_GET_IT(P2_DATA_2_Pin))
 		{
-			my_wait_us_asm(2); // necessary to prevent switching too fast in DPCM fix mode
+			GCN64CommandStart(1);
 		}
+		else if(__HAL_GPIO_EXTI_GET_IT(V1_DATA_0_Pin))
+		{
+			GCN64CommandStart(2);
+		}
+		else
+		{
+			Error_Handler();
+		}
+	}
+	else
+	{
+		// P2_CLOCK
+		if(!p2_clock_filtered && p2_current_bit < 17) // sanity check... but 32 or more bits should never be read in a single latch!
+		{
+			if(clockFix)
+			{
+				my_wait_us_asm(2); // necessary to prevent switching too fast in DPCM fix mode
+			}
 
-		GPIOC->BSRR = P2_GPIOC_current[p2_current_bit];
+			GPIOC->BSRR = P2_GPIOC_current[p2_current_bit];
 
-		ResetAndEnableP2ClockTimer();
-		p2_current_bit++;
+			ResetAndEnableP2ClockTimer();
+			p2_current_bit++;
+		}
 	}
   /* USER CODE END EXTI9_5_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_5);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_9);
   /* USER CODE BEGIN EXTI9_5_IRQn 1 */
 
   /* USER CODE END EXTI9_5_IRQn 1 */
@@ -677,6 +610,21 @@ void USART2_IRQHandler(void)
   /* USER CODE BEGIN USART2_IRQn 1 */
 
   /* USER CODE END USART2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line[15:10] interrupts.
+  */
+void EXTI15_10_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
+	GCN64CommandStart(3);
+
+  /* USER CODE END EXTI15_10_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_12);
+  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
+
+  /* USER CODE END EXTI15_10_IRQn 1 */
 }
 
 /**
@@ -969,5 +917,101 @@ uint8_t UART2_OutputFunction(uint8_t *buffer, uint16_t n)
 {
 	return HAL_UART_Transmit_IT(&huart2, buffer, n);
 }
+
+void GCN64CommandStart(uint8_t player)
+{
+	// P1_DATA_2 == N64_DATA
+	// Read 64 command
+	TASRun *tasrun = TASRunGetByIndex(RUN_A);
+	Console c = TASRunGetConsole(tasrun);
+	uint64_t temp = 0;
+
+	__disable_irq();
+	uint32_t cmd;
+	RunData (*frame)[MAX_CONTROLLERS][MAX_DATA_LANES] = NULL;
+
+	cmd = GCN64_ReadCommand();
+
+	my_wait_us_asm(2); // wait a small amount of time before replying
+
+	//-------- SEND RESPONSE
+	GCN64_SetPortOutput();
+
+	switch(cmd)
+	{
+	  case 0x00: // identity
+		  if(c == CONSOLE_N64)
+		  {
+			  N64_SendIdentity();
+		  }
+		  else if(c == CONSOLE_GC)
+		  {
+			  GCN_SendIdentity();
+		  }
+		  break;
+	  case 0xFF: // N64 reset
+		  N64_SendIdentity();
+		  break;
+	  case 0x01: // poll for N64 state
+		  frame = GetNextFrame(tasrun);
+		  if(frame == NULL) // buffer underflow
+		  {
+			  GCN64_SendData((uint8_t*)&temp, 4); // send blank controller data
+		  }
+		  else
+		  {
+			  GCN64_SendData((uint8_t*)&frame[0][0][0].n64_data, 4);
+		  }
+		  break;
+	  case 0x41: //gamecube origin call
+		  GCN_SendOrigin();
+		  break;
+	  case 0x400302:
+	  case 0x400300:
+	  case 0x400301:
+		  frame = GetNextFrame(tasrun);
+		  if(frame == NULL) // buffer underflow
+		  {
+				GCControllerData *gc_data = (GCControllerData*)&temp;
+				gc_data->a_x_axis = 128;
+				gc_data->a_y_axis = 128;
+				gc_data->c_x_axis = 128;
+				gc_data->c_y_axis = 128;
+				gc_data->beginning_one = 1;
+				GCN64_SendData((uint8_t*)&temp, 8); // send blank controller data
+		  }
+		  else
+		  {
+			  frame[0][0][0].gc_data.beginning_one = 1;
+			  GCN64_SendData((uint8_t*)&frame[0][0][0].gc_data, 8);
+		  }
+		  break;
+	  case 0x02:
+	  case 0x03:
+	  default:
+		  // we do not process the read and write commands (memory pack)
+		  break;
+	}
+	//-------- DONE SENDING RESPOSE
+
+	GCN64_SetPortInput();
+
+	__enable_irq();
+
+	switch(cmd)
+	{
+		case 0x01: // N64 poll
+		case 0x400302: // GC poll
+		case 0x400300: // GC poll
+		case 0x400301: // GC poll
+			serial_interface_output((uint8_t*)"A", 1);
+
+			if(frame == NULL) // there was a buffer underflow
+				serial_interface_output((uint8_t*)"\xB2", 1);
+		break;
+	}
+
+}
+
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

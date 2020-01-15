@@ -140,11 +140,7 @@ int main(void)
 
   // all of the interrupts should be disabled before reaching this point
   // they will be re-enabled based on the console and number of controllers being utilized
-
-  HAL_NVIC_DisableIRQ(EXTI0_IRQn);
-  HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-  HAL_NVIC_DisableIRQ(EXTI4_IRQn);
-  HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+  DisableConsoleInterrupts();
   jumpToDFU = 0;
 
   // ensure no buttons are pressed initially
@@ -236,9 +232,9 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 840-1;
+  htim3.Init.Prescaler = 8400-1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 500-1;
+  htim3.Init.Period = 200-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -354,9 +350,9 @@ static void MX_TIM10_Init(void)
 
   /* USER CODE END TIM10_Init 1 */
   htim10.Instance = TIM10;
-  htim10.Init.Prescaler = 16800-1;
+  htim10.Init.Prescaler = 1680-1;
   htim10.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim10.Init.Period = 200-1;
+  htim10.Init.Period = 500-1;
   htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
@@ -421,7 +417,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, P1_DATA_1_Pin|P1_DATA_0_Pin|P2_DATA_1_Pin|P2_DATA_0_Pin 
-                          |P2_DATA_2_Pin|V2_LATCH_Pin|V2_DATA_1_Pin|V2_DATA_0_Pin, GPIO_PIN_RESET);
+                          |V2_LATCH_Pin|V2_DATA_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LD2_Pin|V2_CLOCK_Pin, GPIO_PIN_RESET);
@@ -430,7 +426,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(SNES_RESET_GPIO_Port, SNES_RESET_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, V1_CLOCK_Pin|V1_LATCH_Pin|V1_DATA_1_Pin|V1_DATA_0_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, V1_CLOCK_Pin|V1_LATCH_Pin|V1_DATA_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PC13 PC14 PC15 */
   GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
@@ -444,10 +440,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : P1_DATA_1_Pin P1_DATA_0_Pin P2_DATA_1_Pin P2_DATA_0_Pin 
-                           P2_DATA_2_Pin */
-  GPIO_InitStruct.Pin = P1_DATA_1_Pin|P1_DATA_0_Pin|P2_DATA_1_Pin|P2_DATA_0_Pin 
-                          |P2_DATA_2_Pin;
+  /*Configure GPIO pins : P1_DATA_1_Pin P1_DATA_0_Pin P2_DATA_1_Pin P2_DATA_0_Pin */
+  GPIO_InitStruct.Pin = P1_DATA_1_Pin|P1_DATA_0_Pin|P2_DATA_1_Pin|P2_DATA_0_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -468,11 +462,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : P1_DATA_2_Pin */
-  GPIO_InitStruct.Pin = P1_DATA_2_Pin;
+  /*Configure GPIO pins : P1_DATA_2_Pin P2_DATA_2_Pin V2_DATA_0_Pin */
+  GPIO_InitStruct.Pin = P1_DATA_2_Pin|P2_DATA_2_Pin|V2_DATA_0_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(P1_DATA_2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB1 PB2 PB10 
                            PB12 PB13 PB14 PB15 
@@ -504,8 +498,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(V2_CLOCK_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : V2_LATCH_Pin V2_DATA_1_Pin V2_DATA_0_Pin */
-  GPIO_InitStruct.Pin = V2_LATCH_Pin|V2_DATA_1_Pin|V2_DATA_0_Pin;
+  /*Configure GPIO pins : V2_LATCH_Pin V2_DATA_1_Pin */
+  GPIO_InitStruct.Pin = V2_LATCH_Pin|V2_DATA_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -517,12 +511,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : V1_CLOCK_Pin V1_LATCH_Pin V1_DATA_1_Pin V1_DATA_0_Pin */
-  GPIO_InitStruct.Pin = V1_CLOCK_Pin|V1_LATCH_Pin|V1_DATA_1_Pin|V1_DATA_0_Pin;
+  /*Configure GPIO pins : V1_CLOCK_Pin V1_LATCH_Pin V1_DATA_1_Pin */
+  GPIO_InitStruct.Pin = V1_CLOCK_Pin|V1_LATCH_Pin|V1_DATA_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : V1_DATA_0_Pin */
+  GPIO_InitStruct.Pin = V1_DATA_0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(V1_DATA_0_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
@@ -536,6 +536,9 @@ static void MX_GPIO_Init(void)
 
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
@@ -569,30 +572,67 @@ void ReInitClockTimers(void)
 
 }
 
-// Many thanks to Tien Majerle, owner of https://stm32f4-discovery.net/, for help with this function
-void JumpToBootLoader(void) {
-	void (*SysMemBootJump)(void);
-
-	// De-init USB
-	MX_USB_DEVICE_DeInit();
-
-	// Disable all of our interrupts (except systick which will be handled later)
-	HAL_NVIC_DisableIRQ(EXTI0_IRQn);
-	HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-	HAL_NVIC_DisableIRQ(EXTI4_IRQn);
-	HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+void DisableAllInterrupts()
+{
 	HAL_NVIC_DisableIRQ(OTG_FS_IRQn);
 	HAL_NVIC_DisableIRQ(TIM3_IRQn);
 	HAL_NVIC_DisableIRQ(TIM6_DAC_IRQn);
 	HAL_NVIC_DisableIRQ(TIM7_IRQn);
 	HAL_NVIC_DisableIRQ(SysTick_IRQn);
 
-	// De-init timers
-	HAL_TIM_Base_DeInit(&htim3);
-	HAL_TIM_Base_DeInit(&htim6);
-	HAL_TIM_Base_DeInit(&htim7);
+	DisableConsoleInterrupts();
+}
+void DisableConsoleInterrupts()
+{
+	HAL_NVIC_DisableIRQ(EXTI0_IRQn);
+	HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+	HAL_NVIC_DisableIRQ(EXTI4_IRQn);
+	HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+	HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+}
+void EnableSNESInterrupts()
+{
+	HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+	HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+	HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+}
+void EnableGCN64Interrupts()
+{
+	HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+	HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+}
+void ClearAllInterrupts()
+{
+	while (HAL_NVIC_GetPendingIRQ(OTG_FS_IRQn))
+	{
+		HAL_NVIC_ClearPendingIRQ(OTG_FS_IRQn);
+	}
 
-	// clear all interrupts
+	ClearTimerInterrupts();
+	ClearConsoleInterrupts();
+}
+void ClearTimerInterrupts()
+{
+	while (HAL_NVIC_GetPendingIRQ(TIM3_IRQn))
+	{
+		HAL_NVIC_ClearPendingIRQ(TIM3_IRQn);
+	}
+	while (HAL_NVIC_GetPendingIRQ(TIM6_DAC_IRQn))
+	{
+		HAL_NVIC_ClearPendingIRQ(TIM6_DAC_IRQn);
+	}
+	while (HAL_NVIC_GetPendingIRQ(TIM7_IRQn))
+	{
+		HAL_NVIC_ClearPendingIRQ(TIM7_IRQn);
+	}
+	while (HAL_NVIC_GetPendingIRQ(TIM1_UP_TIM10_IRQn))
+	{
+		HAL_NVIC_ClearPendingIRQ(TIM1_UP_TIM10_IRQn);
+	}
+}
+void ClearConsoleInterrupts()
+{
 	while (HAL_NVIC_GetPendingIRQ(EXTI0_IRQn))
 	{
 		__HAL_GPIO_EXTI_CLEAR_IT(P1_CLOCK_Pin);
@@ -611,28 +651,71 @@ void JumpToBootLoader(void) {
 	while (HAL_NVIC_GetPendingIRQ(EXTI9_5_IRQn))
 	{
 		__HAL_GPIO_EXTI_CLEAR_IT(P2_CLOCK_Pin);
+		__HAL_GPIO_EXTI_CLEAR_IT(V1_DATA_0_Pin);
+		__HAL_GPIO_EXTI_CLEAR_IT(P2_DATA_2_Pin);
 		HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
 	}
-	while (HAL_NVIC_GetPendingIRQ(TIM3_IRQn))
+	while (HAL_NVIC_GetPendingIRQ(EXTI15_10_IRQn))
 	{
-		HAL_NVIC_ClearPendingIRQ(TIM3_IRQn);
+		__HAL_GPIO_EXTI_CLEAR_IT(V2_DATA_0_Pin);
+		HAL_NVIC_ClearPendingIRQ(EXTI15_10_IRQn);
 	}
-	while (HAL_NVIC_GetPendingIRQ(TIM6_DAC_IRQn))
+}
+
+
+void ReconfigureGPIOForSNES()
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	for(int i=0; i<2; ++i)
 	{
-		HAL_NVIC_ClearPendingIRQ(TIM6_DAC_IRQn);
+		//P1_DATA_2_Pin and P2_DATA_2_Pin have to be open-drain/pullup
+		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+		GPIO_InitStruct.Pull = GPIO_PULLUP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
 	}
-	while (HAL_NVIC_GetPendingIRQ(TIM7_IRQn))
+	for(int i=2; i<4; ++i){
+		//V1_DATA_0_Pin and V2_DATA_0_Pin have to be push-pull
+		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
+	}
+}
+
+void ReconfigureGPIOForGCN64()
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	for(int i=0; i<4; ++i)
 	{
-		HAL_NVIC_ClearPendingIRQ(TIM7_IRQn);
+		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
+		GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
 	}
-	while (HAL_NVIC_GetPendingIRQ(TIM7_IRQn))
-	{
-		HAL_NVIC_ClearPendingIRQ(TIM7_IRQn);
-	}
-	while (HAL_NVIC_GetPendingIRQ(OTG_FS_IRQn))
-	{
-		HAL_NVIC_ClearPendingIRQ(OTG_FS_IRQn);
-	}
+}
+
+// Many thanks to Tien Majerle, owner of https://stm32f4-discovery.net/, for help with this function
+void JumpToBootLoader(void) {
+	void (*SysMemBootJump)(void);
+
+	// De-init USB
+	MX_USB_DEVICE_DeInit();
+
+	// Disable all of our interrupts (except systick which will be handled later)
+	DisableAllInterrupts();
+
+	// De-init timers
+	HAL_TIM_Base_DeInit(&htim3);
+	HAL_TIM_Base_DeInit(&htim6);
+	HAL_TIM_Base_DeInit(&htim7);
+
+	// clear all interrupts
+	ClearAllInterrupts();
 
 	// Prepare to jump
 	volatile uint32_t addr = 0x1FFF0000;

@@ -4,10 +4,36 @@
 #include "stm32f4xx_hal.h"
 #include "main.h"
 
-// N64 data pin is p1_d2
-#define N64_READ (P1_DATA_2_GPIO_Port->IDR & P1_DATA_2_Pin)
 
-static uint8_t GetMiddleOfPulse()
+const GPIO_TypeDef *GCN64_Ctrlr_Port[4] = {
+	P1_DATA_2_GPIO_Port,
+	P2_DATA_2_GPIO_Port,
+	V1_DATA_0_GPIO_Port,
+	V2_DATA_0_GPIO_Port
+};
+const uint32_t GCN64_Ctrlr_Pin[4] = {
+	P1_DATA_2_Pin,
+	P2_DATA_2_Pin,
+	V1_DATA_0_Pin,
+	V2_DATA_0_Pin
+};
+const uint32_t GCN64_Ctrlr_InMask[4] = {
+	~(0x3*(uint32_t)P1_DATA_2_Pin*P1_DATA_2_Pin),
+	~(0x3*(uint32_t)P2_DATA_2_Pin*P2_DATA_2_Pin),
+	~(0x3*(uint32_t)V1_DATA_0_Pin*V1_DATA_0_Pin),
+	~(0x3*(uint32_t)V2_DATA_0_Pin*V2_DATA_0_Pin)
+};
+const uint32_t GCN64_Ctrlr_OutSet[4] = {
+	GPIO_MODE_OUTPUT_PP*(uint32_t)P1_DATA_2_Pin*P1_DATA_2_Pin,
+	GPIO_MODE_OUTPUT_PP*(uint32_t)P2_DATA_2_Pin*P2_DATA_2_Pin,
+	GPIO_MODE_OUTPUT_PP*(uint32_t)V1_DATA_0_Pin*V1_DATA_0_Pin,
+	GPIO_MODE_OUTPUT_PP*(uint32_t)V2_DATA_0_Pin*V2_DATA_0_Pin
+};
+
+// N64 data pin is p1_d2
+#define N64_READ (GCN64_Ctrlr_Port[player]->IDR & GCN64_Ctrlr_Pin[player])
+
+static uint8_t GetMiddleOfPulse(uint8_t player)
 {
 	uint8_t ct = 0;
     // wait for line to go high
@@ -40,7 +66,7 @@ static uint8_t GetMiddleOfPulse()
     return N64_READ ? 1U : 0U;
 }
 
-uint32_t GCN64_ReadCommand()
+uint32_t GCN64_ReadCommand(uint8_t player)
 {
 	uint8_t retVal;
 
@@ -52,7 +78,7 @@ uint32_t GCN64_ReadCommand()
     while(1) // read at least 9 bits (1 byte + stop bit)
     {
         command = command << 1; // make room for the new bit
-        retVal = GetMiddleOfPulse();
+        retVal = GetMiddleOfPulse(player);
         if(retVal == 5) // timeout
         {
         	if(bits_read >= 8)
@@ -77,21 +103,21 @@ uint32_t GCN64_ReadCommand()
     }
 }
 
-void N64_SendIdentity()
+void N64_SendIdentity(uint8_t player)
 {
     // reply 0x05, 0x00, 0x02
 	uint32_t data = 0x00020005;
-	GCN64_SendData((uint8_t*)&data, 3);
+	GCN64_SendData((uint8_t*)&data, 3, player);
 }
 
-void GCN_SendIdentity()
+void GCN_SendIdentity(uint8_t player)
 {
 	// reply 0x90, 0x00, 0x0C
 	uint32_t data = 0x000C0090;
-	GCN64_SendData((uint8_t*)&data, 3);
+	GCN64_SendData((uint8_t*)&data, 3, player);
 }
 
-void GCN_SendOrigin()
+void GCN_SendOrigin(uint8_t player)
 {
 	uint8_t buf[10];
 	memset(buf, 0, sizeof(buf));
@@ -103,5 +129,5 @@ void GCN_SendOrigin()
 	gc_data->c_y_axis = 128;
 	gc_data->beginning_one = 1;
 
-	GCN64_SendData(buf, sizeof(buf));
+	GCN64_SendData(buf, sizeof(buf), player);
 }
