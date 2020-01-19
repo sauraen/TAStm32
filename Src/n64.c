@@ -5,7 +5,7 @@
 #include "main.h"
 
 
-const GPIO_TypeDef *GCN64_Ctrlr_Port[4] = {
+GPIO_TypeDef* const GCN64_Ctrlr_Port[4] = {
 	P1_DATA_2_GPIO_Port,
 	P2_DATA_2_GPIO_Port,
 	V1_DATA_0_GPIO_Port,
@@ -115,6 +115,22 @@ void GCN_SendIdentity(uint8_t player)
 	// reply 0x90, 0x00, 0x0C
 	uint32_t data = 0x000C0090;
 	GCN64_SendData((uint8_t*)&data, 3, player);
+}
+
+void N64_SendDefaultInput(uint8_t player)
+{
+	uint32_t data = 0;
+	GCN64_SendData((uint8_t*)&data, 4, player);
+}
+void GCN_SendDefaultInput(uint8_t player)
+{
+	GCControllerData gc_data = {0};
+	gc_data.a_x_axis = 128;
+	gc_data.a_y_axis = 128;
+	gc_data.c_x_axis = 128;
+	gc_data.c_y_axis = 128;
+	gc_data.beginning_one = 1;
+	GCN64_SendData((uint8_t*)&gc_data, 8, player);
 }
 
 void GCN_SendOrigin(uint8_t player)

@@ -690,7 +690,7 @@ void ReconfigureGPIOForGCN64()
 {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-	for(int i=0; i<4; ++i)
+	for(int i=0; i<1; ++i) //TODO i<4;
 	{
 		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
 		GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;

@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include "main.h"
 
 // TODO: replace with atomics?
 extern volatile uint8_t p1_current_bit;
@@ -314,22 +315,22 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				{
 					case 'M': // setup N64
 						TASRunSetConsole(instance.tasrun, CONSOLE_N64);
-						ReconfigureIOForGCN64();
+						ReconfigureGPIOForGCN64();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'G': // setup Gamecube
 						TASRunSetConsole(instance.tasrun, CONSOLE_GC);
-						ReconfigureIOForGCN64();
+						ReconfigureGPIOForGCN64();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'S': // setup SNES
 						TASRunSetConsole(instance.tasrun, CONSOLE_SNES);
-						ReconfigureIOForSNES();
+						ReconfigureGPIOForSNES();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'N': // setup NES
 						TASRunSetConsole(instance.tasrun, CONSOLE_NES);
-						ReconfigureIOForSNES();
+						ReconfigureGPIOForSNES();
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					default: // Error: console type not understood

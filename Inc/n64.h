@@ -56,7 +56,7 @@ typedef struct __attribute__((packed))
 
 } GCControllerData; // all bits are in the correct order... except for the analog
 
-extern const GPIO_TypeDef *GCN64_Ctrlr_Port[4];
+extern GPIO_TypeDef* const GCN64_Ctrlr_Port[4];
 extern const uint32_t GCN64_Ctrlr_Pin[4];
 extern const uint32_t GCN64_Ctrlr_InMask[4];
 extern const uint32_t GCN64_Ctrlr_OutSet[4];
@@ -108,6 +108,8 @@ maybe_unused static void GCN64_SendData(uint8_t *data, uint8_t bytes, uint8_t pl
 uint32_t GCN64_ReadCommand(uint8_t player);
 void N64_SendIdentity(uint8_t player);
 void GCN_SendIdentity(uint8_t player);
+void N64_SendDefaultInput(uint8_t player);
+void GCN_SendDefaultInput(uint8_t player);
 void GCN_SendOrigin(uint8_t player);
 
 #endif

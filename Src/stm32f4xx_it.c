@@ -920,70 +920,62 @@ uint8_t UART2_OutputFunction(uint8_t *buffer, uint16_t n)
 
 void GCN64CommandStart(uint8_t player)
 {
-	// P1_DATA_2 == N64_DATA
-	// Read 64 command
+	__disable_irq();
+
 	TASRun *tasrun = TASRunGetByIndex(RUN_A);
 	Console c = TASRunGetConsole(tasrun);
-	uint64_t temp = 0;
+	uint8_t run_status = 0; //0: not a run command, 1: run data sent, 2: buffer overflow
 
-	__disable_irq();
-	uint32_t cmd;
-	RunData (*frame)[MAX_CONTROLLERS][MAX_DATA_LANES] = NULL;
-
-	cmd = GCN64_ReadCommand();
+	uint32_t cmd = GCN64_ReadCommand(player);
 
 	my_wait_us_asm(2); // wait a small amount of time before replying
 
 	//-------- SEND RESPONSE
-	GCN64_SetPortOutput();
+	GCN64_SetPortOutput(player);
 
 	switch(cmd)
 	{
 	  case 0x00: // identity
 		  if(c == CONSOLE_N64)
 		  {
-			  N64_SendIdentity();
+			  N64_SendIdentity(player);
 		  }
 		  else if(c == CONSOLE_GC)
 		  {
-			  GCN_SendIdentity();
+			  GCN_SendIdentity(player);
 		  }
 		  break;
 	  case 0xFF: // N64 reset
-		  N64_SendIdentity();
+		  N64_SendIdentity(player);
+		  break;
+	  case 0x41: //gamecube origin call
+		  GCN_SendOrigin(player);
 		  break;
 	  case 0x01: // poll for N64 state
-		  frame = GetNextFrame(tasrun);
-		  if(frame == NULL) // buffer underflow
+		  if(tasrun->size == 0)
 		  {
-			  GCN64_SendData((uint8_t*)&temp, 4); // send blank controller data
+			  run_status = 2; //buffer overflow
+			  N64_SendDefaultInput(player);
 		  }
 		  else
 		  {
-			  GCN64_SendData((uint8_t*)&frame[0][0][0].n64_data, 4);
+			  run_status = 1; //run data sent
+			  GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
 		  }
-		  break;
-	  case 0x41: //gamecube origin call
-		  GCN_SendOrigin();
 		  break;
 	  case 0x400302:
 	  case 0x400300:
 	  case 0x400301:
-		  frame = GetNextFrame(tasrun);
-		  if(frame == NULL) // buffer underflow
+		  if(tasrun->size == 0)
 		  {
-				GCControllerData *gc_data = (GCControllerData*)&temp;
-				gc_data->a_x_axis = 128;
-				gc_data->a_y_axis = 128;
-				gc_data->c_x_axis = 128;
-				gc_data->c_y_axis = 128;
-				gc_data->beginning_one = 1;
-				GCN64_SendData((uint8_t*)&temp, 8); // send blank controller data
+			  run_status = 2; //buffer overflow
+			  GCN_SendDefaultInput(player);
 		  }
 		  else
 		  {
-			  frame[0][0][0].gc_data.beginning_one = 1;
-			  GCN64_SendData((uint8_t*)&frame[0][0][0].gc_data, 8);
+			  run_status = 1; //run data sent
+			  (*tasrun->current)[player][0].gc_data.beginning_one = 1;
+			  GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].gc_data), 8, player);
 		  }
 		  break;
 	  case 0x02:
@@ -992,24 +984,28 @@ void GCN64CommandStart(uint8_t player)
 		  // we do not process the read and write commands (memory pack)
 		  break;
 	}
-	//-------- DONE SENDING RESPOSE
+	//-------- DONE SENDING RESPONSE
 
-	GCN64_SetPortInput();
+	GCN64_SetPortInput(player);
+
+	if(player == 0 && run_status == 1)
+	{
+		//TODO: The rest of this system (i.e. the data format and the frontend)
+		//only seems to support contiguous controllers starting from 1.
+
+		//The N64 polls controllers 4 downto 1 in sequence. So only move to the
+		//next frame after controller 1 has been read.
+		GetNextFrame(tasrun);
+	}
 
 	__enable_irq();
 
-	switch(cmd)
-	{
-		case 0x01: // N64 poll
-		case 0x400302: // GC poll
-		case 0x400300: // GC poll
-		case 0x400301: // GC poll
-			serial_interface_output((uint8_t*)"A", 1);
+	if(player != 0 || run_status == 0)
+		return; //Don't send a serial reply unless controller 1 and was a poll command
 
-			if(frame == NULL) // there was a buffer underflow
-				serial_interface_output((uint8_t*)"\xB2", 1);
-		break;
-	}
+	serial_interface_output((uint8_t*)"A", 1);
+	if(run_status == 2) //buffer overflow
+		serial_interface_output((uint8_t*)"\xB2", 1);
 
 }
 
