@@ -20,7 +20,7 @@ latches_per_bulk_command = 28
 packets = 4
 
 VALID_PLAYERS = {
-    "n64": (1,),
+    "n64": (1,2,3,4,),
     "snes": (1,2,3,4,5,6,7,8,),
     "nes": (1,5,),
     "gc": (1,)
@@ -223,7 +223,24 @@ class TAStm32():
                 if missed != 0:
                     fn -= missed
                     print('Buffer Overflow x{}'.format(missed))
-
+                i = 0
+                while i < len(c):
+                    if c[i] == b'\xB2':
+                        print('Buffer Underflow')
+                    if c[i] == b'\xC0':
+                        print('Bad controller {} command: 0x{:2X}{:2X}{:2X}{:2X}', c[i+1]+1, c[i+2], c[i+3], c[i+4], c[i+5])
+                        i += 5
+                    elif c[i] == b'\xC1':
+                        print('Unsupported mempak command controller {}', c[i+1]+1)
+                        i += 1
+                    elif c[i] == b'\xC2':
+                        print('Controller {} identity command (normal at powerup)', c[i+1]+1)
+                        i += 1
+                    elif c[i] == b'\xC3':
+                        print('Controller {} reset/origin command (normal at powerup)', c[i+1]+1)
+                        i += 1
+                    i += 1
+                
                 # Latch Trains
                 trainskips = c.count(b'UA')
                 if trainskips != 0:

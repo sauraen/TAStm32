@@ -924,75 +924,105 @@ void GCN64CommandStart(uint8_t player)
 
 	TASRun *tasrun = TASRunGetByIndex(RUN_A);
 	Console c = TASRunGetConsole(tasrun);
-	uint8_t run_status = 0; //0: not a run command, 1: run data sent, 2: buffer overflow
 
 	uint32_t cmd = GCN64_ReadCommand(player);
+
+	/*
+	 * 'A': valid run command (not error)
+	 * 0xB2: buffer underflow
+	 * 0xC0: invalid command; player, 4 bytes command
+	 * 0xC1: mempak command; player
+	 * 0xC2: identity command (not error); player
+	 * 0xC3: reset/origin command (not error); player
+	 */
+	uint64_t result = 0xC0 | ((uint64_t)cmd << 16);
+	uint8_t resultlen = 6;
 
 	my_wait_us_asm(2); // wait a small amount of time before replying
 
 	//-------- SEND RESPONSE
 	GCN64_SetPortOutput(player);
 
-	switch(cmd)
+	if(c == CONSOLE_N64)
 	{
-	  case 0x00: // identity
-		  if(c == CONSOLE_N64)
-		  {
-			  N64_SendIdentity(player);
-		  }
-		  else if(c == CONSOLE_GC)
-		  {
-			  GCN_SendIdentity(player);
-		  }
-		  break;
-	  case 0xFF: // N64 reset
-		  N64_SendIdentity(player);
-		  break;
-	  case 0x41: //gamecube origin call
-		  GCN_SendOrigin(player);
-		  break;
-	  case 0x01: // poll for N64 state
-		  if(tasrun->size == 0)
-		  {
-			  run_status = 2; //buffer overflow
-			  N64_SendDefaultInput(player);
-		  }
-		  else
-		  {
-			  run_status = 1; //run data sent
-			  GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
-		  }
-		  break;
-	  case 0x400302:
-	  case 0x400300:
-	  case 0x400301:
-		  if(tasrun->size == 0)
-		  {
-			  run_status = 2; //buffer overflow
-			  GCN_SendDefaultInput(player);
-		  }
-		  else
-		  {
-			  run_status = 1; //run data sent
-			  (*tasrun->current)[player][0].gc_data.beginning_one = 1;
-			  GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].gc_data), 8, player);
-		  }
-		  break;
-	  case 0x02:
-	  case 0x03:
-	  default:
-		  // we do not process the read and write commands (memory pack)
-		  break;
+		if(cmd == 0x00)
+		{
+			//N64 identity
+			N64_SendIdentity(player);
+			result = 0xC2;
+			resultlen = 2;
+		}
+		else if(cmd == 0xFF)
+		{
+			//N64 reset
+			N64_SendIdentity(player);
+			result = 0xC3;
+			resultlen = 2;
+		}
+		else if(cmd == 0x01)
+		{
+			//N64 poll
+			if(tasrun->size == 0)
+			{
+				N64_SendDefaultInput(player);
+				result = 0xB2; //buffer underflow
+				resultlen = 1;
+			}
+			else
+			{
+				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
+				result = 'A'; //run data sent
+				resultlen = 1;
+			}
+		}
+		else if(cmd == 0x02 || cmd == 0x03)
+		{
+			//N64 mempak commands--unsupported
+			result = 0xC1;
+			resultlen = 2;
+		}
 	}
+	else if(c == CONSOLE_GC)
+	{
+		if(cmd == 0x00)
+		{
+			//GC identity
+			GCN_SendIdentity(player);
+			result = 0xC2;
+			resultlen = 2;
+		}
+		else if(cmd == 0x41)
+		{
+			//GC origin
+			GCN_SendOrigin(player);
+			result = 0xC3;
+			resultlen = 2;
+		}
+		else if(cmd == 0x400300 || cmd == 0x400301 || cmd == 0x400302)
+		{
+			//GC poll
+			if(tasrun->size == 0)
+			{
+				GCN_SendDefaultInput(player);
+				result = 0xB2; //buffer underflow
+				resultlen = 1;
+			}
+			else
+			{
+				(*tasrun->current)[player][0].gc_data.beginning_one = 1;
+				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].gc_data), 8, player);
+				result = 'A'; //run data sent
+				resultlen = 1;
+			}
+		}
+	}
+
 	//-------- DONE SENDING RESPONSE
 
 	GCN64_SetPortInput(player);
 
-	if(player == 0 && run_status == 1)
+	if(player == 0 && result == 'A')
 	{
-		//TODO: The rest of this system (i.e. the data format and the frontend)
-		//only seems to support contiguous controllers starting from 1.
-
 		//The N64 polls controllers 4 downto 1 in sequence. So only move to the
 		//next frame after controller 1 has been read.
 		GetNextFrame(tasrun);
@@ -1000,12 +1030,9 @@ void GCN64CommandStart(uint8_t player)
 
 	__enable_irq();
 
-	if(player != 0 || run_status == 0)
-		return; //Don't send a serial reply unless controller 1 and was a poll command
-
-	serial_interface_output((uint8_t*)"A", 1);
-	if(run_status == 2) //buffer overflow
-		serial_interface_output((uint8_t*)"\xB2", 1);
+	result |= (uint64_t)player << 8;
+	if(!(resultlen == 1 && player != 0)) //Don't send a reply for poll commands not on player 1
+		serial_interface_output((uint8_t*)&result, resultlen);
 
 }
 
