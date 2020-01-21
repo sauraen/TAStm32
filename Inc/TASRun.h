@@ -48,6 +48,8 @@ typedef struct
 	Console console;
 	uint8_t numControllers;
 	uint8_t numDataLanes;
+	uint8_t controllersBitmask;
+	uint8_t gcn64_lastControllerPolled;
 	RunData runData[MAX_SIZE][MAX_CONTROLLERS][MAX_DATA_LANES];
 	RunData (*buf)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to the next place the received serial data will be stored
 	RunData (*end)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to the end of the array for bounds checking

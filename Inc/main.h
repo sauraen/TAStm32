@@ -87,7 +87,7 @@ void ClearTimerInterrupts();
 void ClearConsoleInterrupts();
 
 void ReconfigureGPIOForSNES();
-void ReconfigureGPIOForGCN64();
+void ReconfigureGPIOForGCN64(uint8_t controllersBitmask);
 
 void ReInitClockTimers(void);
 void JumpToBootLoader(void);

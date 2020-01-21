@@ -686,16 +686,20 @@ void ReconfigureGPIOForSNES()
 	}
 }
 
-void ReconfigureGPIOForGCN64()
+void ReconfigureGPIOForGCN64(uint8_t controllersBitmask)
 {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-	for(int i=0; i<1; ++i) //TODO i<4;
+	for(int i=0; i<4; ++i)
 	{
-		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
-		GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-		GPIO_InitStruct.Pull = GPIO_NOPULL;
-		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
+		if(controllersBitmask & 0x80)
+		{
+			GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
+			GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+			GPIO_InitStruct.Pull = GPIO_NOPULL;
+			HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
+		}
+		controllersBitmask <<= 1;
 	}
 }
 

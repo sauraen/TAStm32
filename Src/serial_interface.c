@@ -315,12 +315,12 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				{
 					case 'M': // setup N64
 						TASRunSetConsole(instance.tasrun, CONSOLE_N64);
-						ReconfigureGPIOForGCN64();
+						//I/O setup depends on controllers
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'G': // setup Gamecube
 						TASRunSetConsole(instance.tasrun, CONSOLE_GC);
-						ReconfigureGPIOForGCN64();
+						//I/O setup depends on controllers
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					case 'S': // setup SNES
@@ -335,7 +335,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 						break;
 					default: // Error: console type not understood
 						instance.state = SERIAL_COMPLETE;
-						instance.tasrun = NULL;;
+						instance.tasrun = NULL;
 						serial_interface_output((uint8_t*)"\xFC", 1);
 						break;
 				}
@@ -356,51 +356,81 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				break;
 			case SERIAL_NUM_CONTROLLERS:
 			{
-				uint8_t p1 = (input >> 4);
-				uint8_t p2 = (input & 0xF);
-				uint8_t p1_lanes = 0, p2_lanes = 0;
-
-				if(p1 == 0x8)
-					p1_lanes = 1;
-				else if(p1 == 0xC)
-					p1_lanes = 2;
-				else if(p1 == 0xE)
-					p1_lanes = 3;
-
-				if(p2 == 0x8)
-					p2_lanes = 1;
-				else if(p2 == 0xC)
-					p2_lanes = 2;
-				else if(p2 == 0xE)
-					p2_lanes = 3;
-
-				if(p1 != 0) // player 1 better have some kind of data!
+				instance.tasrun->controllersBitmask = input;
+				if(instance.tasrun->console == CONSOLE_N64 || instance.tasrun->console == CONSOLE_GC)
 				{
-					if(p2 != 0) // 2 controllers
+					uint8_t error = 1;
+					do
 					{
-						TASRunSetNumControllers(instance.tasrun, 2);
-
-						if(p1_lanes == p2_lanes)
-						{
-							TASRunSetNumDataLanes(instance.tasrun, p1_lanes);
-						}
-						else // error
-						{
-							serial_interface_output((uint8_t*)"\xFD", 1);
-						}
-					}
-					else // 1 controller
+						if(input & 0xF)
+							break; //controllers 5-8 are invalid
+						if(!input)
+							break; //no controllers
+						TASRunSetNumControllers(instance.tasrun, (input >> 7) + ((input >> 6) & 1) + ((input >> 5) & 1) + ((input >> 4) & 1));
+						TASRunSetNumDataLanes(instance.tasrun, 1);
+						instance.tasrun->gcn64_lastControllerPolled = 0xFF; //beginning of run
+						ReconfigureGPIOForGCN64(input);
+						error = 0;
+					}while(0);
+					if(error)
 					{
-						TASRunSetNumControllers(instance.tasrun, 1);
-						TASRunSetNumDataLanes(instance.tasrun, p1_lanes);
+						instance.state = SERIAL_COMPLETE;
+						instance.tasrun = NULL;
+						serial_interface_output((uint8_t*)"\xFD", 1);
 					}
-					instance.state = SERIAL_SETTINGS;
+					else
+					{
+						instance.state = SERIAL_SETTINGS;
+					}
 				}
 				else
 				{
-					instance.state = SERIAL_COMPLETE;
-					instance.tasrun = NULL;
-					serial_interface_output((uint8_t*)"\xFD", 1);
+					uint8_t p1 = (input >> 4);
+					uint8_t p2 = (input & 0xF);
+					uint8_t p1_lanes = 0, p2_lanes = 0;
+
+					if(p1 == 0x8)
+						p1_lanes = 1;
+					else if(p1 == 0xC)
+						p1_lanes = 2;
+					else if(p1 == 0xE)
+						p1_lanes = 3;
+
+					if(p2 == 0x8)
+						p2_lanes = 1;
+					else if(p2 == 0xC)
+						p2_lanes = 2;
+					else if(p2 == 0xE)
+						p2_lanes = 3;
+
+					if(p1 != 0) // player 1 better have some kind of data!
+					{
+						if(p2 != 0) // 2 controllers
+						{
+							TASRunSetNumControllers(instance.tasrun, 2);
+
+							if(p1_lanes == p2_lanes)
+							{
+								TASRunSetNumDataLanes(instance.tasrun, p1_lanes);
+							}
+							else // error
+							{
+								serial_interface_output((uint8_t*)"\xFD", 1);
+							}
+						}
+						else // 1 controller
+						{
+							TASRunSetNumControllers(instance.tasrun, 1);
+							TASRunSetNumDataLanes(instance.tasrun, p1_lanes);
+						}
+						instance.state = SERIAL_SETTINGS;
+					}
+					else
+					{
+						instance.state = SERIAL_COMPLETE;
+						instance.tasrun = NULL;
+						serial_interface_output((uint8_t*)"\xFD", 1);
+					}
 				}
 				break;
 			}

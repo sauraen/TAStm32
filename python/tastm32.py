@@ -227,7 +227,7 @@ class TAStm32():
                 while i < len(c):
                     if c[i] == b'\xB2':
                         print('Buffer Underflow')
-                    if c[i] == b'\xC0':
+                    elif c[i] == b'\xC0':
                         print('Bad controller {} command: 0x{:2X}{:2X}{:2X}{:2X}', c[i+1]+1, c[i+2], c[i+3], c[i+4], c[i+5])
                         i += 5
                     elif c[i] == b'\xC1':
@@ -239,6 +239,9 @@ class TAStm32():
                     elif c[i] == b'\xC3':
                         print('Controller {} reset/origin command (normal at powerup)', c[i+1]+1)
                         i += 1
+                    elif c[i] == b'\xC4':
+                        print('Controllers polled out of order: expected {}, got {}', c[i+2]+1, c[i+1]+1)
+                        i += 2
                     i += 1
                 
                 # Latch Trains
@@ -356,7 +359,7 @@ def main():
         raise RuntimeError('ERROR')
         sys.exit()
     if args.console == 'n64':
-        buffer = m64.read_input(data)
+        buffer = m64.read_input(data, args.players)
         blankframe = b'\x00\x00\x00\x00' * len(args.players)
     elif args.console == 'snes':
         buffer = r16m.read_input(data, args.players)

@@ -28,7 +28,7 @@ def read_header(data):
     header['description'] = header['description'].decode('utf8').rstrip('\x00')
     return header
 
-def read_input(data, header=None):
+def read_input(data, players, header=None):
     if header == None:
         header = read_header(data)
     print(header)
@@ -38,7 +38,10 @@ def read_input(data, header=None):
         start = 0x400
     else:
         raise RuntimeError('Movie version invalid')
-    input_struct = struct.Struct('4s'*header['controllers'])
+    if len(players) != header['controllers']:
+        raise RuntimeError('Requested players ' + str(players) + ' but .m64 file is for ' 
+            + str(header['controllers']) + ' controllers')
+    input_struct = struct.Struct(str(4*header['controllers']) + 's')
     input_iter = input_struct.iter_unpack(data[start:])
     input_data = []
     for frame in input_iter:

@@ -918,6 +918,52 @@ uint8_t UART2_OutputFunction(uint8_t *buffer, uint16_t n)
 	return HAL_UART_Transmit_IT(&huart2, buffer, n);
 }
 
+static void GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint64_t* result, uint8_t *resultlen)
+{
+	*resultlen = 0;
+	if(tasrun->size <= 1)
+	{
+		*result = 0xB2; //buffer underflow
+		*resultlen = 1;
+		return;
+	}
+	uint8_t lastplayer = tasrun->gcn64_lastControllerPolled;
+	if(player >= lastplayer)
+	{
+		GetNextFrame(tasrun);
+		*result = 'A';
+		*resultlen = 1;
+	}
+	tasrun->gcn64_lastControllerPolled = player;
+	uint8_t expectedplayer = lastplayer - 1;
+	for(int i=0; i<5; ++i)
+	{
+		if(i == 4)
+		{
+			expectedplayer = 0xFF; //error
+			break;
+		}
+		if(expectedplayer >= 4)
+		{
+			expectedplayer = 3;
+		}
+		if(tasrun->controllersBitmask & (1 << (7 - expectedplayer)))
+		{
+			break;
+		}
+		--expectedplayer;
+	}
+	if(player != expectedplayer)
+	{
+		*result = 0xC4 | ((uint64_t)expectedplayer << 16); //error code, player, expected player
+		if(*resultlen) //'A' was already in the buffer
+		{
+			*result |= (uint64_t)'A' << 24; //readd it to the command buffer
+		}
+		*resultlen += 3;
+	}
+}
+
 void GCN64CommandStart(uint8_t player)
 {
 	__disable_irq();
@@ -926,6 +972,7 @@ void GCN64CommandStart(uint8_t player)
 	Console c = TASRunGetConsole(tasrun);
 
 	uint32_t cmd = GCN64_ReadCommand(player);
+	my_wait_us_asm(2); // wait a small amount of time before replying
 
 	/*
 	 * 'A': valid run command (not error)
@@ -937,8 +984,6 @@ void GCN64CommandStart(uint8_t player)
 	 */
 	uint64_t result = 0xC0 | ((uint64_t)cmd << 16);
 	uint8_t resultlen = 6;
-
-	my_wait_us_asm(2); // wait a small amount of time before replying
 
 	//-------- SEND RESPONSE
 	GCN64_SetPortOutput(player);
@@ -962,17 +1007,14 @@ void GCN64CommandStart(uint8_t player)
 		else if(cmd == 0x01)
 		{
 			//N64 poll
-			if(tasrun->size == 0)
+			GCN64_ValidatePoll(tasrun, player, &result, &resultlen);
+			if(result == 0xB2) //buffer underflow
 			{
 				N64_SendDefaultInput(player);
-				result = 0xB2; //buffer underflow
-				resultlen = 1;
 			}
 			else
 			{
 				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
-				result = 'A'; //run data sent
-				resultlen = 1;
 			}
 		}
 		else if(cmd == 0x02 || cmd == 0x03)
@@ -1001,18 +1043,15 @@ void GCN64CommandStart(uint8_t player)
 		else if(cmd == 0x400300 || cmd == 0x400301 || cmd == 0x400302)
 		{
 			//GC poll
-			if(tasrun->size == 0)
+			GCN64_ValidatePoll(tasrun, player, &result, &resultlen);
+			if(result == 0xB2) //buffer underflow
 			{
 				GCN_SendDefaultInput(player);
-				result = 0xB2; //buffer underflow
-				resultlen = 1;
 			}
 			else
 			{
 				(*tasrun->current)[player][0].gc_data.beginning_one = 1;
 				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].gc_data), 8, player);
-				result = 'A'; //run data sent
-				resultlen = 1;
 			}
 		}
 	}
@@ -1020,18 +1059,10 @@ void GCN64CommandStart(uint8_t player)
 	//-------- DONE SENDING RESPONSE
 
 	GCN64_SetPortInput(player);
-
-	if(player == 0 && result == 'A')
-	{
-		//The N64 polls controllers 4 downto 1 in sequence. So only move to the
-		//next frame after controller 1 has been read.
-		GetNextFrame(tasrun);
-	}
-
 	__enable_irq();
 
 	result |= (uint64_t)player << 8;
-	if(!(resultlen == 1 && player != 0)) //Don't send a reply for poll commands not on player 1
+	if(resultlen)
 		serial_interface_output((uint8_t*)&result, resultlen);
 
 }
