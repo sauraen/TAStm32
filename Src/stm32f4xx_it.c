@@ -918,21 +918,28 @@ uint8_t UART2_OutputFunction(uint8_t *buffer, uint16_t n)
 	return HAL_UART_Transmit_IT(&huart2, buffer, n);
 }
 
-static void GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint64_t* result, uint8_t *resultlen)
+static uint8_t GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint8_t *result, uint8_t *resultlen)
 {
 	*resultlen = 0;
-	if(tasrun->size <= 1)
+	uint8_t ret = 1; //Current tasrun data is valid
+	if(tasrun->size == 0)
 	{
-		*result = 0xB2; //buffer underflow
+		result[0] = 0xB2; //buffer underflow
 		*resultlen = 1;
-		return;
+		return 0;
 	}
 	uint8_t lastplayer = tasrun->gcn64_lastControllerPolled;
 	if(player >= lastplayer)
 	{
 		GetNextFrame(tasrun);
-		*result = 'A';
+		result[0] = 'A';
 		*resultlen = 1;
+		if(tasrun->size == 0)
+		{
+			result[1] = 0xB3; //buffer just emptied
+			*resultlen = 2;
+			ret = 0;
+		}
 	}
 	tasrun->gcn64_lastControllerPolled = player;
 	uint8_t expectedplayer = lastplayer - 1;
@@ -955,13 +962,14 @@ static void GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint64_t* result,
 	}
 	if(player != expectedplayer)
 	{
-		*result = 0xC4 | ((uint64_t)expectedplayer << 16); //error code, player, expected player
-		if(*resultlen) //'A' was already in the buffer
-		{
-			*result |= (uint64_t)'A' << 24; //readd it to the command buffer
-		}
+		result[3] = result[0]; //in case there was 'A'
+		result[4] = result[1]; //in case there was B3
+		result[0] = 0xC4;
+		result[1] = player;
+		result[2] = expectedplayer;
 		*resultlen += 3;
 	}
+	return ret;
 }
 
 void GCN64CommandStart(uint8_t player)
@@ -982,7 +990,13 @@ void GCN64CommandStart(uint8_t player)
 	 * 0xC2: identity command (not error); player
 	 * 0xC3: reset/origin command (not error); player
 	 */
-	uint64_t result = 0xC0 | ((uint64_t)cmd << 16);
+	uint8_t result[8];
+	result[0] = 0xC0;
+	result[1] = player;
+	result[2] = cmd & 0xFF;
+	result[3] = (cmd >> 8) & 0xFF;
+	result[4] = (cmd >> 16) & 0xFF;
+	result[5] = (cmd >> 24) & 0xFF;
 	uint8_t resultlen = 6;
 
 	//-------- SEND RESPONSE
@@ -994,33 +1008,35 @@ void GCN64CommandStart(uint8_t player)
 		{
 			//N64 identity
 			N64_SendIdentity(player);
-			result = 0xC2;
+			result[0] = 0xC2;
+			result[1] = player;
 			resultlen = 2;
 		}
 		else if(cmd == 0xFF)
 		{
 			//N64 reset
 			N64_SendIdentity(player);
-			result = 0xC3;
+			result[0] = 0xC3;
+			result[1] = player;
 			resultlen = 2;
 		}
 		else if(cmd == 0x01)
 		{
 			//N64 poll
-			GCN64_ValidatePoll(tasrun, player, &result, &resultlen);
-			if(result == 0xB2) //buffer underflow
+			if(GCN64_ValidatePoll(tasrun, player, result, &resultlen))
 			{
-				N64_SendDefaultInput(player);
+				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
 			}
 			else
 			{
-				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
+				N64_SendDefaultInput(player); //buffer underflow or empty
 			}
 		}
 		else if(cmd == 0x02 || cmd == 0x03)
 		{
 			//N64 mempak commands--unsupported
-			result = 0xC1;
+			result[0] = 0xC1;
+			result[1] = player;
 			resultlen = 2;
 		}
 	}
@@ -1030,28 +1046,29 @@ void GCN64CommandStart(uint8_t player)
 		{
 			//GC identity
 			GCN_SendIdentity(player);
-			result = 0xC2;
+			result[0] = 0xC2;
+			result[1] = player;
 			resultlen = 2;
 		}
 		else if(cmd == 0x41)
 		{
 			//GC origin
 			GCN_SendOrigin(player);
-			result = 0xC3;
+			result[0] = 0xC3;
+			result[1] = player;
 			resultlen = 2;
 		}
 		else if(cmd == 0x400300 || cmd == 0x400301 || cmd == 0x400302)
 		{
 			//GC poll
-			GCN64_ValidatePoll(tasrun, player, &result, &resultlen);
-			if(result == 0xB2) //buffer underflow
-			{
-				GCN_SendDefaultInput(player);
-			}
-			else
+			if(GCN64_ValidatePoll(tasrun, player, result, &resultlen))
 			{
 				(*tasrun->current)[player][0].gc_data.beginning_one = 1;
 				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].gc_data), 8, player);
+			}
+			else
+			{
+				GCN_SendDefaultInput(player); //buffer underflow or empty
 			}
 		}
 	}
@@ -1061,9 +1078,8 @@ void GCN64CommandStart(uint8_t player)
 	GCN64_SetPortInput(player);
 	__enable_irq();
 
-	result |= (uint64_t)player << 8;
 	if(resultlen)
-		serial_interface_output((uint8_t*)&result, resultlen);
+		serial_interface_output(result, resultlen);
 
 }
 

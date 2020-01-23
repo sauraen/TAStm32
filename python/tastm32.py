@@ -27,8 +27,8 @@ VALID_PLAYERS = {
 }
 
 int_to_byte_struct = struct.Struct('B')
-def int_to_byte(interger):
-    return int_to_byte_struct.pack(interger)
+def int_to_byte(integer):
+    return int_to_byte_struct.pack(integer)
 
 class TAStm32():
     def __init__(self, ser):
@@ -228,8 +228,10 @@ class TAStm32():
                 while i < len(c):
                     if c[i] == 0xB2:
                         print('Buffer Underflow')
+                    elif c[i] == 0xB3:
+                        print('Buffer Empty (normal at end of run)')
                     elif c[i] == 0xC0:
-                        print('Bad controller {} command: 0x{:02X}{:02X}{:02X}{:02X}'.format(c[i+1]+1, c[i+2], c[i+3], c[i+4], c[i+5]))
+                        print('Bad controller {} command: 0x{:02X}{:02X}{:02X}{:02X}'.format(c[i+1]+1, c[i+5], c[i+4], c[i+3], c[i+2]))
                         i += 5
                     elif c[i] == 0xC1:
                         print('Unsupported mempak command controller {}'.format(c[i+1]+1))
@@ -284,7 +286,7 @@ class TAStm32():
                         data = b''.join(command)
                         self.write(data)
                     self.write(run_id.lower())
-                if frame > frame_max:
+                if frame >= frame_max:
                     break
             except serial.SerialException:
                 print('ERROR: Serial Exception caught!')
