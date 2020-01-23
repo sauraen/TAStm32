@@ -665,40 +665,47 @@ void ClearConsoleInterrupts()
 
 void ReconfigureGPIOForSNES()
 {
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
 	for(int i=0; i<2; ++i)
 	{
 		//P1_DATA_2_Pin and P2_DATA_2_Pin have to be open-drain/pullup
+		GPIO_InitTypeDef GPIO_InitStruct = {0};
 		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
 		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
 		GPIO_InitStruct.Pull = GPIO_PULLUP;
 		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
+		EXTI->IMR &= ~(GCN64_Ctrlr_Pin[i]); //disable interrupt channel
 	}
 	for(int i=2; i<4; ++i){
 		//V1_DATA_0_Pin and V2_DATA_0_Pin have to be push-pull
+		GPIO_InitTypeDef GPIO_InitStruct = {0};
 		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
 		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 		GPIO_InitStruct.Pull = GPIO_NOPULL;
 		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
+		EXTI->IMR &= ~(GCN64_Ctrlr_Pin[i]); //disable interrupt channel
 	}
 }
 
 void ReconfigureGPIOForGCN64(uint8_t controllersBitmask)
 {
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
 	for(int i=0; i<4; ++i)
 	{
+		GPIO_InitTypeDef GPIO_InitStruct = {0};
+		GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
 		if(controllersBitmask & 0x80)
 		{
-			GPIO_InitStruct.Pin = GCN64_Ctrlr_Pin[i];
 			GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-			GPIO_InitStruct.Pull = GPIO_NOPULL;
-			HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
 		}
+		else
+		{
+			GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+			EXTI->IMR &= ~(GCN64_Ctrlr_Pin[i]); //disable interrupt channel
+		}
+		HAL_GPIO_Init(GCN64_Ctrlr_Port[i], &GPIO_InitStruct);
 		controllersBitmask <<= 1;
 	}
 }

@@ -72,7 +72,8 @@ uint32_t GCN64_ReadCommand(uint8_t player)
 
 	// we are already at the first falling edge
 	// get middle of first pulse, 2us later
-	my_wait_us_asm(2);
+	// however, some time has elapsed for the ISR and at least 2 non-inlined function calls
+	my_wait_100ns_asm(15);
 	uint32_t command = N64_READ ? 1U : 0U, bits_read = 1;
 
     while(1) // read at least 9 bits (1 byte + stop bit)

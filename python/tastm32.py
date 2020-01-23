@@ -217,35 +217,38 @@ class TAStm32():
                     c += self.read(numBytes)
                     if numBytes > int_buffer:
                         print ("WARNING: High latch rate detected: " + str(numBytes))
-                #print('Received: ' + str(c))
+                print('Received: ' + str(c))
                 latches = c.count(run_id)
                 bulk = c.count(run_id.lower())
                 missed = c.count(b'\xB0')
                 if missed != 0:
                     fn -= missed
                     print('Buffer Overflow x{}'.format(missed))
-                i = 0
-                while i < len(c):
-                    if c[i] == 0xB2:
-                        print('Buffer Underflow')
-                    elif c[i] == 0xB3:
-                        print('Buffer Empty (normal at end of run)')
-                    elif c[i] == 0xC0:
-                        print('Bad controller {} command: 0x{:02X}{:02X}{:02X}{:02X}'.format(c[i+1]+1, c[i+5], c[i+4], c[i+3], c[i+2]))
-                        i += 5
-                    elif c[i] == 0xC1:
-                        print('Unsupported mempak command controller {}'.format(c[i+1]+1))
+                try:
+                    i = 0
+                    while i < len(c):
+                        if c[i] == 0xB2:
+                            print('Buffer Underflow')
+                        elif c[i] == 0xB3:
+                            print('Buffer Empty (normal at end of run)')
+                        elif c[i] == 0xC0:
+                            print('Bad controller {} command: 0x{:02X}{:02X}{:02X}{:02X}'.format(c[i+1]+1, c[i+5], c[i+4], c[i+3], c[i+2]))
+                            i += 5
+                        elif c[i] == 0xC1:
+                            print('Unsupported mempak command controller {}'.format(c[i+1]+1))
+                            i += 1
+                        elif c[i] == 0xC2:
+                            print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
+                            i += 1
+                        elif c[i] == 0xC3:
+                            print('Controller {} reset/origin command (normal at powerup)'.format(c[i+1]+1))
+                            i += 1
+                        elif c[i] == 0xC4:
+                            print('Controllers polled out of order: expected {}, got {}'.format(c[i+2]+1, c[i+1]+1))
+                            i += 2
                         i += 1
-                    elif c[i] == 0xC2:
-                        print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
-                        i += 1
-                    elif c[i] == 0xC3:
-                        print('Controller {} reset/origin command (normal at powerup)'.format(c[i+1]+1))
-                        i += 1
-                    elif c[i] == 0xC4:
-                        print('Controllers polled out of order: expected {}, got {}'.format(c[i+2]+1, c[i+1]+1))
-                        i += 2
-                    i += 1
+                except IndexError:
+                    print('Incomplete packet received')
                 
                 # Latch Trains
                 trainskips = c.count(b'UA')

@@ -93,6 +93,7 @@ void ReInitClockTimers(void);
 void JumpToBootLoader(void);
 
 void my_wait_us_asm(int n);
+void my_wait_100ns_asm(int n);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

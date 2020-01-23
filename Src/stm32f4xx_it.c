@@ -1078,6 +1078,15 @@ void GCN64CommandStart(uint8_t player)
 	GCN64_SetPortInput(player);
 	__enable_irq();
 
+	if(!resultlen)
+	{
+		//TODO XXX
+		result[0] = '0' + player;
+		result[1] = ':';
+		result[2] = tasrun->controllersBitmask;
+		resultlen = 3;
+	}
+
 	if(resultlen)
 		serial_interface_output(result, resultlen);
 
