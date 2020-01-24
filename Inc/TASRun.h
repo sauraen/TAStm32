@@ -6,11 +6,11 @@
 #include "snes.h"
 
 #define MAX_SIZE 1024
-#define MAX_CONTROLLERS 2
+#define MAX_CONTROLLERS 4
 #define MAX_DATA_LANES 3
 #define MAX_TRANSITIONS 5
 
-#define MAX_NUM_RUNS 2
+#define MAX_NUM_RUNS 1
 
 typedef enum
 {

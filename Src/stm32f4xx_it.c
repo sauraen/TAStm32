@@ -972,6 +972,8 @@ static uint8_t GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint8_t *resul
 	return ret;
 }
 
+static uint8_t last_send_result = 0;
+
 void GCN64CommandStart(uint8_t player)
 {
 	__disable_irq();
@@ -1078,17 +1080,16 @@ void GCN64CommandStart(uint8_t player)
 	GCN64_SetPortInput(player);
 	__enable_irq();
 
-	if(!resultlen)
+	result[resultlen] = '1' + player;
+	++resultlen;
+	if(last_send_result)
 	{
-		//TODO XXX
-		result[0] = '0' + player;
-		result[1] = ':';
-		result[2] = tasrun->controllersBitmask;
-		resultlen = 3;
+		result[resultlen] = last_send_result;
+		++resultlen;
 	}
 
 	if(resultlen)
-		serial_interface_output(result, resultlen);
+		last_send_result = serial_interface_output(result, resultlen);
 
 }
 
