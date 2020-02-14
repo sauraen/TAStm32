@@ -10,7 +10,7 @@ import psutil
 import serial_helper
 import argparse_helper
 
-import r08, r16m, m64, dtm
+import r08, r16m, m64, bk2, dtm
 
 DEBUG = False
 
@@ -354,7 +354,10 @@ def main():
 
     try:
         with open(args.movie, 'rb') as f:
-            data = f.read()
+            if args.movie.endswith('.bk2'):
+                data = None
+            else:
+                data = f.read()
     except:
         print('ERROR: the specified file (' + args.movie + ') failed to open')
         sys.exit(0)
@@ -365,7 +368,12 @@ def main():
         raise RuntimeError('ERROR')
         sys.exit()
     if args.console == 'n64':
-        buffer = m64.read_input(data, args.players)
+        if args.movie.endswith('.bk2'):
+            buffer = bk2.read_input(args.movie, args.players)
+            if buffer is None:
+                sys.exit(1)
+        else:
+            buffer = m64.read_input(data, args.players)
         blankframe = b'\x00\x00\x00\x00' * len(args.players)
     elif args.console == 'snes':
         buffer = r16m.read_input(data, args.players)
