@@ -52,9 +52,9 @@ def walk_into_bs1(jrraaddr):
     return c1data + bytes([0]*4) + jumpcmd(jrraaddr) + bytes([0]*4)
 
 def ootbootstraprun(bs2data, bs4data, maindata):
-    jrraaddr = 0x80000000 #TODO
+    jrraaddr = 0x80000490
     s1 = 0x801C84A0 #global context
-    bs24loc = 0x801C8000 #TODO must be within 0x8000 of global context
+    bs24loc = 0x801C7E70 #must be within 0x8000 of global context
     kargaroc_loader_entry = 0x80401000
     ret = bytearray()
     ret.extend(walk_into_bs1(jrraaddr) * 20) #frames of walking
@@ -71,8 +71,8 @@ if __name__ == '__main__':
         bs4data = open('bootstrapper4.bin', 'rb').read()
         maindata = open('kargaroc_loader.bin', 'rb').read()
         out = open(sys.argv[1], 'wb')
-    except:
-        print('Could not open data files')
+    except Exception as e:
+        print('Could not open data files: ' + str(e))
         sys.exit(1)
     out.write(ootbootstraprun(bs2data, bs4data, maindata))
     out.close()
