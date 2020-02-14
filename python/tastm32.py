@@ -217,7 +217,7 @@ class TAStm32():
                     c += self.read(numBytes)
                     if numBytes > int_buffer:
                         print ("WARNING: High latch rate detected: " + str(numBytes))
-                print('Received: ' + str(c))
+                #print('Received: ' + str(c))
                 latches = c.count(run_id)
                 bulk = c.count(run_id.lower())
                 missed = c.count(b'\xB0')

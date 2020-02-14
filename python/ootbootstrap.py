@@ -5,10 +5,14 @@ import random
 import createm64 as m64
 
 def jumpcmd(addr):
-    return ((addr >> 2) | 0x08000000).to_bytes(4, byteorder='big')
+    assert(addr % 4 == 0)
+    j = ((addr >> 2) & 0x03FFFFFF) | 0x08000000
+    return j.to_bytes(4, byteorder='big')
 
 def bootstrapper1(data, s1startoffset, jrraaddr):
     assert(len(data) % 2 == 0)
+    if(s1startoffset < 0):
+        s1startoffset += 0x10000
     c3data = jumpcmd(jrraaddr)
     ret = bytearray()
     d = 0
@@ -46,3 +50,29 @@ def walk_into_bs1(jrraaddr):
     #Need c1 to be a NOP opcode, and also Link walking forward.
     c1data = bytes([0, 0, 0, 0x40]) #If this ends up being walking down, change to 0xC0
     return c1data + bytes([0]*4) + jumpcmd(jrraaddr) + bytes([0]*4)
+
+def ootbootstraprun(bs2data, bs4data, maindata):
+    jrraaddr = 0x80000000 #TODO
+    s1 = 0x801C84A0 #global context
+    bs24loc = 0x801C8000 #TODO must be within 0x8000 of global context
+    kargaroc_loader_entry = 0x80401000
+    ret = bytearray()
+    ret.extend(walk_into_bs1(jrraaddr) * 20) #frames of walking
+    ret.extend(bootstrapper1(bs2data, bs24loc - s1, jrraaddr))
+    ret.extend(jumpsingle(bs24loc))
+    ret.extend(bootstrapper1(bs4data, bs24loc - s1, jrraaddr))
+    ret.extend(dataforbootstrapper4(maindata, bs24loc))
+    ret.extend(jumpsingle(kargaroc_loader_entry) * 100) #frames of running K's loader
+    return m64.create_header(4, len(ret) // 16) + ret
+    
+if __name__ == '__main__':
+    try:
+        bs2data = open('bootstrapper2.bin', 'rb').read()
+        bs4data = open('bootstrapper4.bin', 'rb').read()
+        maindata = open('kargaroc_loader.bin', 'rb').read()
+        out = open(sys.argv[1], 'wb')
+    except:
+        print('Could not open data files')
+        sys.exit(1)
+    out.write(ootbootstraprun(bs2data, bs4data, maindata))
+    out.close()
