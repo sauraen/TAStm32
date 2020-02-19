@@ -9,30 +9,59 @@ def jumpcmd(addr):
     j = ((addr >> 2) & 0x03FFFFFF) | 0x08000000
     return j.to_bytes(4, byteorder='big')
 
-def bootstrapper1and3(bsidx, data, regstartoffset, jrraaddr):
-    #TODO optimize this so it writes the same literal to multiple addresses if
-    #they're the same. There will be many of these.
+
+
+def bootstrapper1and3(bsidx, smart, data, regstartoffset, jrraaddr):
     assert(len(data) % 2 == 0)
     assert(bsidx == 1 or bsidx == 3)
-    if(regstartoffset < 0):
-        regstartoffset += 0x10000
-    ret = bytearray()
-    def write_frame(c1data):
-        frame = c1data + bytes([0]*4) + jumpcmd(jrraaddr) + bytes([0]*4)
-        ret.extend(frame if bsidx == 3 else frame * 3)
-    d = 0
-    while d < len(data):
-        #addi $gp, $r0, 0xIIII
+    
+    def li_cmd(twobytedata):
+        print('    addi $gp, $zero, 0x' + twobytedata.hex())
         #00100000 00011100 IIIIIIII IIIIIIII
-        write_frame(b'\x20\x1C' + bytes([data[d], data[d+1]]))
-        #sh $gp, 0xKKKK($s1 for bs1, $s0 for bs3)
+        return b'\x20\x1C' + twobytedata
+    
+    def sh_cmd(offset):
+        ob = offset.to_bytes(2, byteorder='big')
+        print('    sh $gp, 0x' + ob.hex() + '(s' + ('0' if bsidx == 3 else '1') + ')')
         #10100110 00111100 KKKKKKKK KKKKKKKK for bs1
         #10100110 00011100 KKKKKKKK KKKKKKKK for bs3
         byte2 = b'\x1C' if bsidx == 3 else b'\x3C'
-        write_frame(b'\xA6' + byte2 + regstartoffset.to_bytes(2, byteorder='big'))
-        d += 2
-        regstartoffset += 2
-    print('Bootstrapper' + str(bsidx) + ' is ' + str(float(len(ret)//16)/60) + ' sec.')
+        return b'\xA6' + byte2 + ob
+    
+    def write_frame(c1data):
+        frame = c1data + bytes([0]*4) + jumpcmd(jrraaddr) + bytes([0]*4)
+        ret.extend(frame if bsidx == 3 else frame * 3)
+    
+    if(regstartoffset < 0):
+        regstartoffset += 0x10000
+    ret = bytearray()
+    
+    if smart:
+        smartdata = []
+        d = 0
+        while d < len(data):
+            twobytedata = bytes([data[d], data[d+1]])
+            for entry in smartdata:
+                if entry['d'] == twobytedata:
+                    entry['a'].append(regstartoffset)
+                    twobytedata = None
+            if twobytedata:
+                smartdata.append({'a': [regstartoffset], 'd': twobytedata})
+            d += 2
+            regstartoffset += 2
+        for entry in smartdata:
+            write_frame(li_cmd(entry['d']))
+            for a in entry['a']:
+                write_frame(sh_cmd(a))
+    else:
+        d = 0
+        while d < len(data):
+            write_frame(li_cmd(bytes([data[d], data[d+1]])))
+            write_frame(sh_cmd(regstartoffset))
+            d += 2
+            regstartoffset += 2
+    print('Bootstrapper' + str(bsidx) + (' smart' if smart else ' naive') 
+        + ' is ' + str(float(len(ret)//16)/60) + ' sec.')
     return ret
 
 def jumpsingle(addr):
@@ -67,9 +96,11 @@ def ootbootstraprun(bs2data, bs4data, maindata):
     kargaroc_loader_entry = 0x80401000
     ret = bytearray()
     ret.extend(walk_into_bs1(jrraaddr) * 60) #frames of walking
-    ret.extend(bootstrapper1and3(1, bs2data, bs2loc - bs1s1, jrraaddr))
+    bootstrapper1and3(1, False, bs2data, bs2loc - bs1s1, jrraaddr)
+    ret.extend(bootstrapper1and3(1, True, bs2data, bs2loc - bs1s1, jrraaddr))
     ret.extend(jumpsingle(bs2loc) * 3)
-    ret.extend(bootstrapper1and3(3, bs4data, bs4loc - bs3s0, jrraaddr))
+    bootstrapper1and3(3, False, bs4data, bs4loc - bs3s0, jrraaddr)
+    ret.extend(bootstrapper1and3(3, True, bs4data, bs4loc - bs3s0, jrraaddr))
     ret.extend(dataforbootstrapper4(maindata, bs4loc))
     ret.extend(jumpsingle(kargaroc_loader_entry) * 100) #frames of running K's loader
     return m64.create_header(4, len(ret) // 16) + ret
