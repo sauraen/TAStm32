@@ -249,7 +249,7 @@ class TAStm32():
                         i += 1
                 except IndexError:
                     #print('Incomplete packet received')
-					pass
+                    pass
                 
                 # Latch Trains
                 trainskips = c.count(b'UA')
