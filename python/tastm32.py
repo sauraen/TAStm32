@@ -238,17 +238,18 @@ class TAStm32():
                             print('Unsupported mempak command controller {}'.format(c[i+1]+1))
                             i += 1
                         elif c[i] == 0xC2:
-                            print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
+                            #print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
                             i += 1
                         elif c[i] == 0xC3:
-                            print('Controller {} reset/origin command (normal at powerup)'.format(c[i+1]+1))
+                            #print('Controller {} reset/origin command (normal at powerup)'.format(c[i+1]+1))
                             i += 1
                         elif c[i] == 0xC4:
                             print('Controllers polled out of order: expected {}, got {}'.format(c[i+2]+1, c[i+1]+1))
                             i += 2
                         i += 1
                 except IndexError:
-                    print('Incomplete packet received')
+                    #print('Incomplete packet received')
+					pass
                 
                 # Latch Trains
                 trainskips = c.count(b'UA')

@@ -95,7 +95,7 @@ def ootbootstraprun(bs2data, bs4data, maindata):
     bs4loc = 0x8011E000 #must be within 0x8000 of padmgr
     kargaroc_loader_entry = 0x80401000
     ret = bytearray()
-    ret.extend(walk_into_bs1(jrraaddr) * 60) #frames of walking
+    ret.extend(walk_into_bs1(jrraaddr) * 240) #frames of walking
     bootstrapper1and3(1, False, bs2data, bs2loc - bs1s1, jrraaddr)
     ret.extend(bootstrapper1and3(1, True, bs2data, bs2loc - bs1s1, jrraaddr))
     ret.extend(jumpsingle(bs2loc) * 3)
@@ -109,7 +109,7 @@ if __name__ == '__main__':
     try:
         bs2data = open('newbs2.bin', 'rb').read()
         bs4data = open('bootstrapper4.bin', 'rb').read()
-        maindata = open('kargaroc_loader.bin', 'rb').read()
+        maindata = open('kargaroc_test_payload.bin', 'rb').read()
         out = open(sys.argv[1], 'wb')
     except Exception as e:
         print('Could not open data files: ' + str(e))
