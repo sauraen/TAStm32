@@ -31,7 +31,7 @@ def read_header(data):
 def read_input(data, players, header=None):
     if header == None:
         header = read_header(data)
-    print(header)
+    #print(header)
     if header['version'] == 1 or header['version'] == 2:
         start = 0x200
     elif header['version'] == 3:
