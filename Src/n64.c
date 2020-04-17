@@ -66,6 +66,9 @@ static uint8_t GetMiddleOfPulse(uint8_t player)
     return N64_READ ? 1U : 0U;
 }
 
+uint8_t gcn64_cmd_buffer[0x25];
+
+/*
 uint32_t GCN64_ReadCommand(uint8_t player)
 {
 	uint8_t retVal;
@@ -103,11 +106,49 @@ uint32_t GCN64_ReadCommand(uint8_t player)
         }
     }
 }
+*/
 
-void N64_SendIdentity(uint8_t player)
+int8_t GCN64_ReadCommand(uint8_t player)
 {
-    // reply 0x05, 0x00, 0x02
-	uint32_t data = 0x00020005;
+	uint8_t bit = 6;
+	uint8_t byte = 0;
+	uint8_t bit_read;
+
+	// we are already at the first falling edge
+	// get middle of first pulse, 2us later
+	// however, some time has elapsed for the ISR and at least 2 non-inlined function calls
+	my_wait_100ns_asm(15);
+	if(N64_READ) gcn64_cmd_buffer[byte] = 0x80;
+
+	while(1){
+		bit_read = GetMiddleOfPulse(player);
+		if(bit_read == 5){
+			// Timeout
+			if(byte >= 1 && bit == 6 && (gcn64_cmd_buffer[byte] & 0x80)){
+				// At least one full byte, and stop bit in next byte =
+				// Normal end of command
+				return byte;
+			}else{
+				return -1; // Not 8n+1 bits received
+			}
+			gcn64_cmd_buffer[byte] |= bit_read << bit--;
+			if(bit == 255){
+				bit = 7;
+				++byte;
+				if(byte == 25){
+					return -2; // Command too long
+				}
+			}
+		}
+	}
+}
+
+void N64_SendIdentity(uint8_t player, uint8_t ctrlr_status)
+{
+	// Controller type low-high, then controller status
+	// Type: 0x0005 for normal controller (absolute | joyport)
+	// Status: 0x1 ctrlr pak connected, 0x2 ctrlr pak disconnected, 0x4 ctrlr pak addr CRC error
+	uint32_t data = 0x0005 | ((uint32_t)ctrlr_status) << 16;
 	GCN64_SendData((uint8_t*)&data, 3, player);
 }
 
@@ -148,3 +189,68 @@ void GCN_SendOrigin(uint8_t player)
 
 	GCN64_SendData(buf, sizeof(buf), player);
 }
+
+// Controller pak CRC functions from libultra, decompiled from OoT
+
+// Valid addr up to 0x7FF
+// It's the address of a block of 0x20 bytes in the mempak
+uint8_t osMempakAddrCRC(uint16_t addr) {
+    uint32_t ret = 0;
+    uint16_t bit;
+    uint8_t i;
+
+    for (bit = 0x400; bit; bit >>= 1) {
+        ret <<= 1;
+        if (addr32 & bit) {
+            if (ret & 0x20) {
+                ret ^= 0x14;
+            } else {
+                ++ret;
+            }
+        } else {
+            if (ret & 0x20) {
+                ret ^= 0x15;
+            }
+        }
+    }
+    for (i = 0; i < 5; ++i) {
+        ret <<= 1;
+        if (ret & 0x20) {
+            ret ^= 0x15;
+        }
+    }
+    return ret & 0x1f;
+}
+
+uint8_t osMempakDataCRC(uint8_t* data) {
+    uint32_t ret = 0;
+    uint8_t bit;
+    uint8_t byte;
+
+    for (byte = 0x20; byte; --byte, ++data) {
+        for (bit = 0x80; bit; bit >>= 1) {
+            ret <<= 1;
+            if ((*data & bit) != 0) {
+                if ((ret & 0x100) != 0) {
+                    ret ^= 0x84;
+                } else {
+                    ++ret;
+                }
+            } else {
+                if (ret & 0x100) {
+                    ret ^= 0x85;
+                }
+            }
+        }
+    }
+    do {
+        ret <<= 1;
+        if (ret & 0x100) {
+            ret ^= 0x85;
+        }
+        ++byte;
+    } while (byte < 8);
+    return ret;
+}
+
+

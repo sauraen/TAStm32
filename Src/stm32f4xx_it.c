@@ -964,7 +964,7 @@ static uint8_t GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint8_t *resul
 	{
 		result[3] = result[0]; //in case there was 'A'
 		result[4] = result[1]; //in case there was B3
-		result[0] = 0xC4;
+		result[0] = 0xC3;
 		result[1] = player;
 		result[2] = expectedplayer;
 		*resultlen += 3;
@@ -981,87 +981,95 @@ void GCN64CommandStart(uint8_t player)
 	TASRun *tasrun = TASRunGetByIndex(RUN_A);
 	Console c = TASRunGetConsole(tasrun);
 
-	uint32_t cmd = GCN64_ReadCommand(player);
+	int8_t cmd_bytes = GCN64_ReadCommand(player);
+	uint8_t cmd = gcn64_cmd_buffer[0];
 	my_wait_us_asm(2); // wait a small amount of time before replying
 
 	/*
 	 * 'A': valid run command (not error)
 	 * 0xB2: buffer underflow
-	 * 0xC0: invalid command; player, 4 bytes command
-	 * 0xC1: mempak command; player
-	 * 0xC2: identity command (not error); player
-	 * 0xC3: reset/origin command (not error); player
+	 * 0xB3: buffer just emptied (not error)
+	 * 0xC0: command receive error
+	 * 0xC1: command bad length
+	 * 0xC2: unsupported command
+	 * 0xC3: players out of order
+	 * 0xC4: identity command (not error)
+	 * 0xC5: reset/origin command (not error)
+	 * 0xC6: mempak read (not error)
+	 * 0xC7: mempak write (not error)
 	 */
 	uint8_t result[8];
-	result[0] = 0xC0;
+	result[0] = 0xC2;
 	result[1] = player;
-	result[2] = cmd & 0xFF;
-	result[3] = (cmd >> 8) & 0xFF;
-	result[4] = (cmd >> 16) & 0xFF;
-	result[5] = (cmd >> 24) & 0xFF;
-	uint8_t resultlen = 6;
+	result[2] = cmd;
+	result[3] = gcn64_cmd_buffer[1];
+	result[4] = gcn64_cmd_buffer[2];
+	result[5] = gcn64_cmd_buffer[3];
+	uint8_t resultlen = cmd_bytes <= 3 ? cmd_bytes + 2 : 6;
 
 	//-------- SEND RESPONSE
 	GCN64_SetPortOutput(player);
 
-	if(c == CONSOLE_N64)
-	{
-		if(cmd == 0x00)
-		{
+	if(cmd_bytes < 0){
+		result[0] = 0xC0;
+		resultlen = 6;
+	}else if(c == CONSOLE_N64 || c == CONSOLE_Z64TC){
+		if(cmd == 0x00){
 			//N64 identity
-			N64_SendIdentity(player);
-			result[0] = 0xC2;
-			result[1] = player;
-			resultlen = 2;
-		}
-		else if(cmd == 0xFF)
-		{
-			//N64 reset
-			N64_SendIdentity(player);
-			result[0] = 0xC3;
-			result[1] = player;
-			resultlen = 2;
-		}
-		else if(cmd == 0x01)
-		{
-			//N64 poll
-			if(GCN64_ValidatePoll(tasrun, player, result, &resultlen))
-			{
-				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
+			N64_SendIdentity(player, c == CONSOLE_Z64TC ? 1 : 2);
+			if(c == CONSOLE_Z64TC) TC_Got_Identity(tasrun, player);
+			if(cmd_bytes == 1){
+				result[0] = 0xC4;
+				resultlen = 2;
+			}else{
+				result[0] = 0xC1;
 			}
-			else
-			{
+		}else if(cmd == 0xFF){
+			//N64 reset
+			N64_SendIdentity(player, c == CONSOLE_Z64TC ? 1 : 2);
+			if(c == CONSOLE_Z64TC) TC_Got_Reset(tasrun, player);
+			if(cmd_bytes == 1){
+				result[0] = 0xC5;
+				resultlen = 2;
+			}else{
+				result[0] = 0xC1;
+			}
+		}else if(cmd == 0x01){
+			//N64 poll
+			if(c == CONSOLE_Z64TC){
+				TC_Poll(tasrun, player);
+			}else if(GCN64_ValidatePoll(tasrun, player, result, &resultlen)){
+				//TODO ace
+				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
+			}else{
 				N64_SendDefaultInput(player); //buffer underflow or empty
 			}
-		}
-		else if(cmd == 0x02 || cmd == 0x03)
-		{
-			//N64 mempak commands--unsupported
-			result[0] = 0xC1;
-			result[1] = player;
-			resultlen = 2;
+		}else if(cmd == 0x02){
+			//N64 mempak read
+			result[0] = 0xC6;
+			if(c == CONSOLE_Z64TC) TC_MempakRead(tasrun, player, cmd_bytes, result, &resultlen);
+		}else if(cmd == 0x03){
+			//N64 mempak write
+			result[0] = 0xC7;
+			if(c == CONSOLE_Z64TC) TC_MempakWrite(tasrun, player, cmd_bytes, result, &resultlen);
 		}
 	}
 	else if(c == CONSOLE_GC)
 	{
-		if(cmd == 0x00)
-		{
+		if(cmd == 0x00){
 			//GC identity
 			GCN_SendIdentity(player);
 			result[0] = 0xC2;
 			result[1] = player;
 			resultlen = 2;
-		}
-		else if(cmd == 0x41)
-		{
+		}else if(cmd == 0x41){
 			//GC origin
 			GCN_SendOrigin(player);
 			result[0] = 0xC3;
 			result[1] = player;
 			resultlen = 2;
 		}
-		else if(cmd == 0x400300 || cmd == 0x400301 || cmd == 0x400302)
-		{
+		else if(cmd == 0x40 && gcn_cmd_buffer[1] == 0x03 && gcn_cmd_buffer[2] <= 2){
 			//GC poll
 			if(GCN64_ValidatePoll(tasrun, player, result, &resultlen))
 			{

@@ -29,6 +29,7 @@ typedef enum
 	SERIAL_TRANSITION_1,
 	SERIAL_TRANSITION_2,
 	SERIAL_TRANSITION_3,
+	SERIAL_TC_COMMAND,
 } SerialInterfaceState;
 
 typedef enum

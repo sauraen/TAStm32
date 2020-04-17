@@ -12,12 +12,16 @@
 
 #define MAX_NUM_RUNS 1
 
+#define TC_COMMAND_SIZE 96
+#define TC_MAX_COMMANDS 1024
+
 typedef enum
 {
-	CONSOLE_N64,
-	CONSOLE_SNES,
 	CONSOLE_NES,
-	CONSOLE_GC
+	CONSOLE_SNES,
+	CONSOLE_N64,
+	CONSOLE_GC,
+	CONSOLE_Z64TC
 } Console;
 
 
@@ -50,10 +54,28 @@ typedef struct
 	uint8_t numDataLanes;
 	uint8_t controllersBitmask;
 	uint8_t gcn64_lastControllerPolled;
-	RunData runData[MAX_SIZE][MAX_CONTROLLERS][MAX_DATA_LANES];
-	RunData (*buf)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to the next place the received serial data will be stored
-	RunData (*end)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to the end of the array for bounds checking
-	RunData (*current)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to what the console will read next
+	union{
+		RunData runData[MAX_SIZE][MAX_CONTROLLERS][MAX_DATA_LANES];
+		uint8_t tcData[TC_MAX_COMMANDS][TC_COMMAND_SIZE];
+	};
+	union{
+		struct{
+			RunData (*buf)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to the next place the received serial data will be stored
+			RunData (*end)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to the end of the array for bounds checking
+			RunData (*current)[MAX_CONTROLLERS][MAX_DATA_LANES]; // points to what the console will read next
+		};
+		struct{
+			uint16_t tc_cmd_read;
+			uint16_t tc_cmd_write;
+			uint16_t tc_cmds_avail;
+			uint8_t tc_byte_read;
+			uint8_t tc_byte_write;
+			uint8_t tc_nextctrlr;
+			uint8_t tc_state; //0 probe, 1 rumble, 2 sending polls, 0xFF invalid/reset
+			uint8_t tc_rumble_rec_mask;
+			uint8_t tc_rumble_response;
+		};
+	};
 	volatile uint16_t size;
 	uint8_t dpcmFix;
 	uint8_t clockFix;
@@ -63,6 +85,7 @@ typedef struct
 	Transition transitions_dpcm[MAX_TRANSITIONS];
 	uint8_t console_data_size;
 	uint8_t input_data_size;
+	uint8_t is_z64_tc;
 } TASRun;
 
 extern TASRun tasruns[MAX_NUM_RUNS];

@@ -149,17 +149,20 @@ void TASRunSetConsole(TASRun *tasrun, Console console)
 
 	switch (console)
 	{
-		case CONSOLE_N64:
-			tasrun->console_data_size = sizeof(N64ControllerData);
+		case CONSOLE_NES:
+			tasrun->console_data_size = sizeof(NESControllerData);
 			break;
 		case CONSOLE_SNES:
 			tasrun->console_data_size = sizeof(SNESControllerData);
 			break;
-		case CONSOLE_NES:
-			tasrun->console_data_size = sizeof(NESControllerData);
+		case CONSOLE_N64:
+			tasrun->console_data_size = sizeof(N64ControllerData);
 			break;
 		case CONSOLE_GC:
 			tasrun->console_data_size = sizeof(GCControllerData);
+			break;
+		case CONSOLE_Z64TC:
+			tasrun->console_data_size = 0;
 			break;
 	}
 	UpdateSizeOfInputForRun(tasrun);
@@ -223,14 +226,14 @@ void ExtractDataAndAdvance(RunData (rd)[MAX_CONTROLLERS][MAX_DATA_LANES], TASRun
 
 	switch(tasrun->console)
 	{
-		case CONSOLE_N64:
-			bytesPerInput = sizeof(N64ControllerData);
+		case CONSOLE_NES:
+			bytesPerInput = sizeof(NESControllerData);
 			break;
 		case CONSOLE_SNES:
 			bytesPerInput = sizeof(SNESControllerData);
 			break;
-		case CONSOLE_NES:
-			bytesPerInput = sizeof(NESControllerData);
+		case CONSOLE_N64:
+			bytesPerInput = sizeof(N64ControllerData);
 			break;
 		case CONSOLE_GC:
 			bytesPerInput = sizeof(GCControllerData);

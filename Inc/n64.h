@@ -105,11 +105,16 @@ maybe_unused static void GCN64_SendData(uint8_t *data, uint8_t bytes, uint8_t pl
 	GCN64_SendStop(player);
 }
 
-uint32_t GCN64_ReadCommand(uint8_t player);
-void N64_SendIdentity(uint8_t player);
+int8_t GCN64_ReadCommand(uint8_t player);
+extern uint8_t gcn64_cmd_buffer[0x25];
+
+void N64_SendIdentity(uint8_t player, uint8_t ctrlr_status = 0x2);
 void GCN_SendIdentity(uint8_t player);
 void N64_SendDefaultInput(uint8_t player);
 void GCN_SendDefaultInput(uint8_t player);
 void GCN_SendOrigin(uint8_t player);
+
+extern uint8_t osMempakAddrCRC(uint16_t addr);
+extern uint8_t osMempakDataCRC(uint8_t* data);
 
 #endif

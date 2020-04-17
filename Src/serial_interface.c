@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "main.h"
+#include "z64_tc.h"
 
 // TODO: replace with atomics?
 extern volatile uint8_t p1_current_bit;
@@ -146,9 +147,26 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 					case '\xDF':
 						jumpToDFU = 1;
 						break;
+					case '\x80': // Buffer command for transmission
+						((void)0);
+						uint8_t ret = TC_Validate_NewCmd(instance.tasrun);
+						if(ret){
+							serial_interface_output(&ret, 1);
+						}else{
+							instance.state = SERIAL_TC_COMMAND;
+						}
+						break;
+					case '\x81': // Reset TC buffered commands
+						TC_Reset(instance.tasrun);
+						break;
 					default: // Error: prefix not understood
 						serial_interface_output((uint8_t*)"\xFF", 1);
 						break;
+				}
+				break;
+			case SERIAL_TC_COMMAND:
+				if(TC_RecCmdByte(instance.tasrun, input)){
+					instance.state = SERIAL_COMPLETE;
 				}
 				break;
 			case SERIAL_TRAIN_RUN:
@@ -301,7 +319,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 					{
 						EnableSNESInterrupts();
 					}
-					else if(c == CONSOLE_N64 || c == CONSOLE_GC)
+					else if(c == CONSOLE_N64 || c == CONSOLE_GC || c == CONSOLE_Z64TC)
 					{
 						EnableGCN64Interrupts();
 					}
@@ -313,6 +331,16 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 			case SERIAL_CONSOLE:
 				switch(input)
 				{
+					case 'N': // setup NES
+						TASRunSetConsole(instance.tasrun, CONSOLE_NES);
+						ReconfigureGPIOForSNES();
+						instance.state = SERIAL_NUM_CONTROLLERS;
+						break;
+					case 'S': // setup SNES
+						TASRunSetConsole(instance.tasrun, CONSOLE_SNES);
+						ReconfigureGPIOForSNES();
+						instance.state = SERIAL_NUM_CONTROLLERS;
+						break;
 					case 'M': // setup N64
 						TASRunSetConsole(instance.tasrun, CONSOLE_N64);
 						//I/O setup depends on controllers
@@ -323,14 +351,10 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 						//I/O setup depends on controllers
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
-					case 'S': // setup SNES
-						TASRunSetConsole(instance.tasrun, CONSOLE_SNES);
-						ReconfigureGPIOForSNES();
-						instance.state = SERIAL_NUM_CONTROLLERS;
-						break;
-					case 'N': // setup NES
-						TASRunSetConsole(instance.tasrun, CONSOLE_NES);
-						ReconfigureGPIOForSNES();
+					case 'Z': // setup Zelda 64 Total Control
+						TASRunSetConsole(instance.tasrun, CONSOLE_Z64TC);
+						TC_Reset(instance.tasrun);
+						//I/O setup depends on controllers
 						instance.state = SERIAL_NUM_CONTROLLERS;
 						break;
 					default: // Error: console type not understood
@@ -357,7 +381,8 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 			case SERIAL_NUM_CONTROLLERS:
 			{
 				instance.tasrun->controllersBitmask = input;
-				if(instance.tasrun->console == CONSOLE_N64 || instance.tasrun->console == CONSOLE_GC)
+				Console console = instance.tasrun->console;
+				if(console == CONSOLE_N64 || console == CONSOLE_GC || console == CONSOLE_Z64TC)
 				{
 					uint8_t error = 1;
 					do
@@ -366,6 +391,8 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 							break; //controllers 5-8 are invalid
 						if(!input)
 							break; //no controllers
+						if(console == CONSOLE_Z64TC && input != 0xE)
+							break; //Z64TC must have exactly controllers 2,3,4
 						TASRunSetNumControllers(instance.tasrun, (input >> 7) + ((input >> 6) & 1) + ((input >> 5) & 1) + ((input >> 4) & 1));
 						TASRunSetNumDataLanes(instance.tasrun, 1);
 						instance.tasrun->gcn64_lastControllerPolled = 0xFF; //beginning of run
