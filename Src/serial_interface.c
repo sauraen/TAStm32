@@ -391,7 +391,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 							break; //controllers 5-8 are invalid
 						if(!input)
 							break; //no controllers
-						if(console == CONSOLE_Z64TC && input != 0xE)
+						if(console == CONSOLE_Z64TC && input != 0x70)
 							break; //Z64TC must have exactly controllers 2,3,4
 						TASRunSetNumControllers(instance.tasrun, (input >> 7) + ((input >> 6) & 1) + ((input >> 5) & 1) + ((input >> 4) & 1));
 						TASRunSetNumDataLanes(instance.tasrun, 1);

@@ -1036,7 +1036,9 @@ void GCN64CommandStart(uint8_t player)
 			}
 		}else if(cmd == 0x01){
 			//N64 poll
-			if(c == CONSOLE_Z64TC){
+			if(cmd_bytes != 1){
+				result[0] = 0xC1;
+			}else if(c == CONSOLE_Z64TC){
 				TC_Poll(tasrun, player);
 			}else if(GCN64_ValidatePoll(tasrun, player, result, &resultlen)){
 				//TODO ace
@@ -1047,6 +1049,7 @@ void GCN64CommandStart(uint8_t player)
 		}else if(cmd == 0x02){
 			//N64 mempak read
 			result[0] = 0xC6;
+			resultlen = 5;
 			if(c == CONSOLE_Z64TC) TC_MempakRead(tasrun, player, cmd_bytes, result, &resultlen);
 		}else if(cmd == 0x03){
 			//N64 mempak write
@@ -1059,17 +1062,16 @@ void GCN64CommandStart(uint8_t player)
 		if(cmd == 0x00){
 			//GC identity
 			GCN_SendIdentity(player);
-			result[0] = 0xC2;
+			result[0] = 0xC4;
 			result[1] = player;
 			resultlen = 2;
 		}else if(cmd == 0x41){
 			//GC origin
 			GCN_SendOrigin(player);
-			result[0] = 0xC3;
+			result[0] = 0xC5;
 			result[1] = player;
 			resultlen = 2;
-		}
-		else if(cmd == 0x40 && gcn_cmd_buffer[1] == 0x03 && gcn_cmd_buffer[2] <= 2){
+		}else if(cmd == 0x40 && gcn_cmd_buffer[1] == 0x03 && gcn_cmd_buffer[2] <= 2){
 			//GC poll
 			if(GCN64_ValidatePoll(tasrun, player, result, &resultlen))
 			{
