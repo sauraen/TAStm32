@@ -80,7 +80,7 @@ void TC_Poll(TASRun *tasrun, uint8_t player){
 	uint16_t addr_short = addr_main >> 5; \
 	if(osMempakAddrCRC(addr_short) != (addr_main & 0x1F)){ \
 		/*Bad addr CRC*/ \
-		result[resultlen++] = 0x9C; \
+		result[(*resultlen)++] = 0x9C; \
 	}
 
 void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *result, uint8_t *resultlen){
@@ -99,7 +99,7 @@ void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *re
 	 */
 	//Result already has: Mempak write, player, command (redundant), addr hi, addr lo
 	if(cmd_bytes != 3){
-		result[resultlen++] = 0x9A;
+		result[(*resultlen)++] = 0x9A;
 		return;
 	}
 	GET_MEMPAK_ADDR
@@ -116,16 +116,16 @@ void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *re
 void TC_MempakWrite(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *result, uint8_t *resultlen){
 	//Result already has: Mempak write, player, command (redundant), addr hi, addr lo, data 0
 	if(cmd_bytes != 0x23){
-		result[resultlen++] = 0x9B;
+		result[(*resultlen)++] = 0x9B;
 		return;
 	}
 	GET_MEMPAK_ADDR
 	if(addr_short == 0x600){
 		//Rumble write
-		u8 rumble = gcn_cmd_buffer[3];
+		uint8_t rumble = gcn64_cmd_buffer[3];
 		if(rumble & 0xFE){
 			//Supposed to be only 0 or 1
-			result[resultlen++] = 0x9D;
+			result[(*resultlen)++] = 0x9D;
 		}
 		rumble &= 1;
 		if(tasrun->tc_state == 0){
@@ -133,11 +133,11 @@ void TC_MempakWrite(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *r
 			tasrun->tc_rumble_response = 0;
 			tasrun->tc_state = 1;
 		}
-		tc_rumble_rec_mask |= 1 << (player - 1);
-		tc_rumble_response |= rumble << (player - 1);
-		if(tc_rumble_rec_mask == 7){
+		tasrun->tc_rumble_rec_mask |= 1 << (player - 1);
+		tasrun->tc_rumble_response |= rumble << (player - 1);
+		if(tasrun->tc_rumble_rec_mask == 7){
 			//Send response to host
-			result[resultlen++] = 0x90 | tc_rumble_response;
+			result[(*resultlen)++] = 0x90 | tasrun->tc_rumble_response;
 		}
 	}
 }

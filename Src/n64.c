@@ -66,7 +66,7 @@ static uint8_t GetMiddleOfPulse(uint8_t player)
     return N64_READ ? 1U : 0U;
 }
 
-uint8_t gcn64_cmd_buffer[0x25];
+uint8_t gcn64_cmd_buffer[0x30];
 
 /*
 uint32_t GCN64_ReadCommand(uint8_t player)
@@ -111,18 +111,22 @@ uint32_t GCN64_ReadCommand(uint8_t player)
 int8_t GCN64_ReadCommand(uint8_t player)
 {
 	uint8_t bit = 6;
-	uint8_t byte = 0;
+	uint8_t byte;
 	uint8_t bit_read;
+
+	//Clear beginning of buffer
+	for(byte=0; byte<6; ++byte) gcn64_cmd_buffer[byte] = 0;
+	byte = 0;
 
 	// we are already at the first falling edge
 	// get middle of first pulse, 2us later
 	// however, some time has elapsed for the ISR and at least 2 non-inlined function calls
 	my_wait_100ns_asm(15);
-	if(N64_READ) gcn64_cmd_buffer[byte] = 0x80;
+	if(N64_READ) gcn64_cmd_buffer[0] = 0x80;
 
 	while(1){
 		bit_read = GetMiddleOfPulse(player);
-		if(bit_read == 5){
+		if(bit_read >= 2){
 			// Timeout
 			if(byte >= 1 && bit == 6 && (gcn64_cmd_buffer[byte] & 0x80)){
 				// At least one full byte, and stop bit in next byte =
@@ -131,13 +135,14 @@ int8_t GCN64_ReadCommand(uint8_t player)
 			}else{
 				return -1; // Not 8n+1 bits received
 			}
-			gcn64_cmd_buffer[byte] |= bit_read << bit--;
-			if(bit == 255){
-				bit = 7;
-				++byte;
-				if(byte == 25){
-					return -2; // Command too long
-				}
+		}
+		gcn64_cmd_buffer[byte] |= bit_read << bit--;
+		if(bit == 255){
+			bit = 7;
+			++byte;
+			gcn64_cmd_buffer[byte] = 0;
+			if(byte == 0x2F){
+				return -2; // Command too long
 			}
 		}
 	}
@@ -201,7 +206,7 @@ uint8_t osMempakAddrCRC(uint16_t addr) {
 
     for (bit = 0x400; bit; bit >>= 1) {
         ret <<= 1;
-        if (addr32 & bit) {
+        if (addr & bit) {
             if (ret & 0x20) {
                 ret ^= 0x14;
             } else {

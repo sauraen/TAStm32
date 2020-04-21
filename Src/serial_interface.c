@@ -122,6 +122,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 						memset((uint32_t*)&V2_GPIOC_next, 0, 64);
 
 						ResetTASRuns();
+
 						serial_interface_output((uint8_t*)"\x01R", 2); // good response for reset
 						instance.state = SERIAL_COMPLETE;
 						break;
@@ -319,7 +320,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 					{
 						EnableSNESInterrupts();
 					}
-					else if(c == CONSOLE_N64 || c == CONSOLE_GC || c == CONSOLE_Z64TC)
+					else if(c == CONSOLE_N64 || c == CONSOLE_GC)
 					{
 						EnableGCN64Interrupts();
 					}
@@ -470,6 +471,10 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				ReInitClockTimers();
 
 				serial_interface_output((uint8_t*)"\x01S", 2);
+
+				if(instance.tasrun->console == CONSOLE_Z64TC){
+					EnableGCN64Interrupts();
+				}
 
 				instance.state = SERIAL_COMPLETE;
 				instance.tasrun = NULL;

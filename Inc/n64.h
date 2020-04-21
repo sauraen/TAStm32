@@ -106,9 +106,9 @@ maybe_unused static void GCN64_SendData(uint8_t *data, uint8_t bytes, uint8_t pl
 }
 
 int8_t GCN64_ReadCommand(uint8_t player);
-extern uint8_t gcn64_cmd_buffer[0x25];
+extern uint8_t gcn64_cmd_buffer[0x30];
 
-void N64_SendIdentity(uint8_t player, uint8_t ctrlr_status = 0x2);
+void N64_SendIdentity(uint8_t player, uint8_t ctrlr_status);
 void GCN_SendIdentity(uint8_t player);
 void N64_SendDefaultInput(uint8_t player);
 void GCN_SendDefaultInput(uint8_t player);

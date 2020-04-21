@@ -217,7 +217,7 @@ class TAStm32():
                     c += self.read(numBytes)
                     if numBytes > int_buffer:
                         print ("WARNING: High latch rate detected: " + str(numBytes))
-                #print('Received: ' + str(c))
+                #print('Received: ' + str(numBytes) + ':' + str(c))
                 latches = c.count(run_id)
                 bulk = c.count(run_id.lower())
                 missed = c.count(b'\xB0')
@@ -232,20 +232,23 @@ class TAStm32():
                         elif c[i] == 0xB3:
                             print('Buffer Empty (normal at end of run)')
                         elif c[i] == 0xC0:
-                            print('Bad controller {} command: 0x{:02X}{:02X}{:02X}{:02X}'.format(c[i+1]+1, c[i+5], c[i+4], c[i+3], c[i+2]))
+                            print('Command receive error ctrlr {}: {:02X} {:02X} {:02X} {:02X}'.format(c[i+1]+1, c[i+2], c[i+3], c[i+4], c[i+5]))
                             i += 5
                         elif c[i] == 0xC1:
-                            print('Unsupported mempak command controller {}'.format(c[i+1]+1))
+                            print('Command bad length ctrlr {}'.format(c[i+1]+1))
                             i += 1
                         elif c[i] == 0xC2:
-                            #print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
+                            print('Unsupported command ctrlr {}'.format(c[i+1]+1), str(c))
                             i += 1
                         elif c[i] == 0xC3:
-                            #print('Controller {} reset/origin command (normal at powerup)'.format(c[i+1]+1))
-                            i += 1
-                        elif c[i] == 0xC4:
                             print('Controllers polled out of order: expected {}, got {}'.format(c[i+2]+1, c[i+1]+1))
                             i += 2
+                        elif c[i] == 0xC4:
+                            print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
+                            i += 1
+                        elif c[i] == 0xC5:
+                            print('Controller {} reset/origin command (normal at powerup)'.format(c[i+1]+1))
+                            i += 1
                         i += 1
                 except IndexError:
                     #print('Incomplete packet received')

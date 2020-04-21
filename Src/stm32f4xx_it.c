@@ -42,6 +42,7 @@
 #include "TASRun.h"
 #include "usbd_cdc_if.h"
 #include "serial_interface.h"
+#include "z64_tc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -973,6 +974,7 @@ static uint8_t GCN64_ValidatePoll(TASRun *tasrun, uint8_t player, uint8_t *resul
 }
 
 static uint8_t last_send_result = 0;
+static uint8_t result[8];
 
 void GCN64CommandStart(uint8_t player)
 {
@@ -987,52 +989,52 @@ void GCN64CommandStart(uint8_t player)
 
 	/*
 	 * 'A': valid run command (not error)
-	 * 0xB2: buffer underflow
-	 * 0xB3: buffer just emptied (not error)
-	 * 0xC0: command receive error
-	 * 0xC1: command bad length
-	 * 0xC2: unsupported command
-	 * 0xC3: players out of order
-	 * 0xC4: identity command (not error)
-	 * 0xC5: reset/origin command (not error)
-	 * 0xC6: mempak read (not error)
-	 * 0xC7: mempak write (not error)
+	 * 0xB2 (0): buffer underflow
+	 * 0xB3 (0): buffer just emptied (not error)
+	 * 0xC0 (3): command receive error
+	 * 0xC1 (3): command bad length
+	 * 0xC2 (3): unsupported command
+	 * 0xC3 (2): players out of order
+	 * 0xC4 (1): identity command (not error)
+	 * 0xC5 (1): reset/origin command (not error)
+	 * 0xC6 (3): mempak read (not error)
+	 * 0xC7 (4): mempak write (not error)
+	 *       ^ number of additional data bytes
 	 */
-	uint8_t result[8];
 	result[0] = 0xC2;
 	result[1] = player;
 	result[2] = cmd;
-	result[3] = gcn64_cmd_buffer[1];
-	result[4] = gcn64_cmd_buffer[2];
-	result[5] = gcn64_cmd_buffer[3];
-	uint8_t resultlen = cmd_bytes <= 3 ? cmd_bytes + 2 : 6;
+	result[3] = cmd_bytes;
+	uint8_t resultlen = 4;
 
 	//-------- SEND RESPONSE
 	GCN64_SetPortOutput(player);
 
 	if(cmd_bytes < 0){
 		result[0] = 0xC0;
-		resultlen = 6;
+		result[3] = gcn64_cmd_buffer[1];
+		result[4] = gcn64_cmd_buffer[2];
+		resultlen = 5;
 	}else if(c == CONSOLE_N64 || c == CONSOLE_Z64TC){
 		if(cmd == 0x00){
 			//N64 identity
-			N64_SendIdentity(player, c == CONSOLE_Z64TC ? 1 : 2);
-			if(c == CONSOLE_Z64TC) TC_Got_Identity(tasrun, player);
-			if(cmd_bytes == 1){
+			if(cmd_bytes != 1){
+				result[0] = 0xC1;
+			}else{
 				result[0] = 0xC4;
 				resultlen = 2;
-			}else{
-				result[0] = 0xC1;
+				N64_SendIdentity(player, c == CONSOLE_Z64TC ? 1 : 2);
+				if(c == CONSOLE_Z64TC) TC_Got_Identity(tasrun, player);
 			}
 		}else if(cmd == 0xFF){
 			//N64 reset
-			N64_SendIdentity(player, c == CONSOLE_Z64TC ? 1 : 2);
-			if(c == CONSOLE_Z64TC) TC_Got_Reset(tasrun, player);
-			if(cmd_bytes == 1){
+			if(cmd_bytes != 1){
+				result[0] = 0xC1;
+			}else{
 				result[0] = 0xC5;
 				resultlen = 2;
-			}else{
-				result[0] = 0xC1;
+				N64_SendIdentity(player, c == CONSOLE_Z64TC ? 1 : 2);
+				if(c == CONSOLE_Z64TC) TC_Got_Reset(tasrun, player);
 			}
 		}else if(cmd == 0x01){
 			//N64 poll
@@ -1040,8 +1042,9 @@ void GCN64CommandStart(uint8_t player)
 				result[0] = 0xC1;
 			}else if(c == CONSOLE_Z64TC){
 				TC_Poll(tasrun, player);
+				result[0] = 'A';
+				resultlen = 2;
 			}else if(GCN64_ValidatePoll(tasrun, player, result, &resultlen)){
-				//TODO ace
 				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
 			}else{
 				N64_SendDefaultInput(player); //buffer underflow or empty
@@ -1049,11 +1052,17 @@ void GCN64CommandStart(uint8_t player)
 		}else if(cmd == 0x02){
 			//N64 mempak read
 			result[0] = 0xC6;
-			resultlen = 5;
+			result[2] = gcn64_cmd_buffer[1];
+			result[3] = gcn64_cmd_buffer[2];
+			resultlen = 4;
 			if(c == CONSOLE_Z64TC) TC_MempakRead(tasrun, player, cmd_bytes, result, &resultlen);
 		}else if(cmd == 0x03){
 			//N64 mempak write
 			result[0] = 0xC7;
+			result[2] = gcn64_cmd_buffer[1];
+			result[3] = gcn64_cmd_buffer[2];
+			result[4] = gcn64_cmd_buffer[3];
+			resultlen = 5;
 			if(c == CONSOLE_Z64TC) TC_MempakWrite(tasrun, player, cmd_bytes, result, &resultlen);
 		}
 	}
@@ -1061,17 +1070,23 @@ void GCN64CommandStart(uint8_t player)
 	{
 		if(cmd == 0x00){
 			//GC identity
-			GCN_SendIdentity(player);
-			result[0] = 0xC4;
-			result[1] = player;
-			resultlen = 2;
+			if(cmd_bytes != 1){
+				result[0] = 0xC1;
+			}else{
+				result[0] = 0xC4;
+				resultlen = 2;
+				GCN_SendIdentity(player);
+			}
 		}else if(cmd == 0x41){
 			//GC origin
-			GCN_SendOrigin(player);
-			result[0] = 0xC5;
-			result[1] = player;
-			resultlen = 2;
-		}else if(cmd == 0x40 && gcn_cmd_buffer[1] == 0x03 && gcn_cmd_buffer[2] <= 2){
+			if(cmd_bytes != 1){
+				result[0] = 0xC1;
+			}else{
+				result[0] = 0xC5;
+				resultlen = 2;
+				GCN_SendOrigin(player);
+			}
+		}else if(cmd == 0x40 && gcn64_cmd_buffer[1] == 0x03 && gcn64_cmd_buffer[2] <= 2){
 			//GC poll
 			if(GCN64_ValidatePoll(tasrun, player, result, &resultlen))
 			{
@@ -1090,16 +1105,18 @@ void GCN64CommandStart(uint8_t player)
 	GCN64_SetPortInput(player);
 	__enable_irq();
 
-	result[resultlen] = '1' + player;
-	++resultlen;
-	if(last_send_result)
-	{
-		result[resultlen] = last_send_result;
-		++resultlen;
+	/*
+	if(c != CONSOLE_Z64TC){
+		result[resultlen++] = '1' + player;
+		//if(last_send_result){
+		//	result[resultlen++] = last_send_result;
+		//}
 	}
+	*/
 
-	if(resultlen)
+	if(resultlen) {
 		last_send_result = serial_interface_output(result, resultlen);
+	}
 
 }
 
