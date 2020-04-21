@@ -498,7 +498,7 @@ void EXTI9_5_IRQHandler(void)
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
 	TASRun *tasrun = TASRunGetByIndex(RUN_A);
 	Console c = TASRunGetConsole(tasrun);
-	if(c == CONSOLE_N64 || c == CONSOLE_GC)
+	if(c == CONSOLE_N64 || c == CONSOLE_GC || c == CONSOLE_Z64TC)
 	{
 		if(__HAL_GPIO_EXTI_GET_IT(P2_DATA_2_Pin))
 		{
@@ -1113,6 +1113,10 @@ void GCN64CommandStart(uint8_t player)
 		//}
 	}
 	*/
+
+	if((result[0] == 0xC4 || result[0] == 'A') && resultlen == 2){
+		return; //No need to spam identity/poll
+	}
 
 	if(resultlen) {
 		last_send_result = serial_interface_output(result, resultlen);
