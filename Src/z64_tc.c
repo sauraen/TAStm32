@@ -97,12 +97,13 @@ void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *re
 	 * (only one controller per frame is probed, except when rumble is supposed to stop
 	 * in which case all four are in order 0-3)
 	 */
-	//Result already has: Mempak write, player, command (redundant), addr hi, addr lo
+	//Result already has: Mempak write, player, addr hi, addr lo
 	if(cmd_bytes != 3){
 		result[(*resultlen)++] = 0x9A;
 		return;
 	}
 	GET_MEMPAK_ADDR
+	tasrun->tc_rumble_rec_mask = 0;
 	if(addr_short == 0x400){
 		//0x20 bytes of something where 0x1F is 0x80
 		//byte 0x20 must be correct checksum
@@ -114,12 +115,14 @@ void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *re
 	}
 }
 void TC_MempakWrite(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *result, uint8_t *resultlen){
-	//Result already has: Mempak write, player, command (redundant), addr hi, addr lo, data 0
+	//Result already has: Mempak write, player, addr hi, addr lo, data 0
 	if(cmd_bytes != 0x23){
 		result[(*resultlen)++] = 0x9B;
 		return;
 	}
 	GET_MEMPAK_ADDR
+	gcn64_cmd_buffer[0x23] = osMempakDataCRC(&gcn64_cmd_buffer[3]);
+	GCN64_SendData(&gcn64_cmd_buffer[0x23], 1, player);
 	if(addr_short == 0x600){
 		//Rumble write
 		uint8_t rumble = gcn64_cmd_buffer[3];
@@ -139,5 +142,7 @@ void TC_MempakWrite(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *r
 			//Send response to host
 			result[(*resultlen)++] = 0x90 | tasrun->tc_rumble_response;
 		}
+	}else{
+		tasrun->tc_rumble_rec_mask = 0;
 	}
 }

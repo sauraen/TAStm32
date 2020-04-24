@@ -96,14 +96,14 @@ class TAStm32():
                     {'c': 0xC5, 'l': 1, 's': 'Controller reset', 'a': ['player']},
                     {'c': 0xC6, 'l': 3, 's': 'Mempak read', 'a': mempak_cmd_args[:-1]},
                     {'c': 0xC7, 'l': 4, 's': 'Mempak write', 'a': mempak_cmd_args},
-                    {'c': 0x90, 'l': 0, 's': 'Rumble received: 000 (Invalid)', 'a': []},
+                    {'c': 0x90, 'l': 0, 's': 'Rumble received: 000 (Error)', 'a': []},
                     {'c': 0x91, 'l': 0, 's': 'Rumble received: 001 (CRC Fail)', 'a': []},
                     {'c': 0x92, 'l': 0, 's': 'Rumble received: 010 (Q False)', 'a': []},
                     {'c': 0x93, 'l': 0, 's': 'Rumble received: 011 (Q True)', 'a': []},
-                    {'c': 0x94, 'l': 0, 's': 'Rumble received: 100 (Invalid)', 'a': []},
+                    {'c': 0x94, 'l': 0, 's': 'Rumble received: 100 (Cmd Invalid)', 'a': []},
                     {'c': 0x95, 'l': 0, 's': 'Rumble received: 101 (Nop OK)', 'a': []},
                     {'c': 0x96, 'l': 0, 's': 'Rumble received: 110 (Cmd OK)', 'a': []},
-                    {'c': 0x97, 'l': 0, 's': 'Rumble received: 111 (Invalid)', 'a': []},
+                    {'c': 0x97, 'l': 0, 's': 'Rumble received: 111 (Error)', 'a': []},
                     {'c': 0x98, 'l': 0, 's': 'New TC command when last not finished', 'a': []},
                     {'c': 0x99, 'l': 0, 's': 'TC command buffer overflow', 'a': []},
                     {'c': 0x9A, 'l': 0, 's': 'Mempak read cmd wrong len', 'a': []},
@@ -149,6 +149,7 @@ def main():
         dev.setup_run()
         print('Main Loop Start')
         dev.main_loop()
+        dev.reset()
     finally:
         print('Exiting')
         dev.ser.close()
