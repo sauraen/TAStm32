@@ -74,6 +74,7 @@ typedef struct
 			uint8_t tc_state; //0 probe, 1 rumble, 2 sending polls, 0xFF invalid/reset
 			uint8_t tc_rumble_rec_mask;
 			uint8_t tc_rumble_response;
+			uint8_t tc_temp[4];
 		};
 	};
 	volatile uint16_t size;
@@ -85,7 +86,6 @@ typedef struct
 	Transition transitions_dpcm[MAX_TRANSITIONS];
 	uint8_t console_data_size;
 	uint8_t input_data_size;
-	uint8_t is_z64_tc;
 } TASRun;
 
 extern TASRun tasruns[MAX_NUM_RUNS];

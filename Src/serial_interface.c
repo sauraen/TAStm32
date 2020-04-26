@@ -149,16 +149,19 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 						jumpToDFU = 1;
 						break;
 					case '\x80': // Buffer command for transmission
-						((void)0);
-						uint8_t ret = TC_Validate_NewCmd(instance.tasrun);
-						if(ret){
-							serial_interface_output(&ret, 1);
-						}else{
-							instance.state = SERIAL_TC_COMMAND;
+						{
+							TASRun *tasrun = TASRunGetByIndex(RUN_A);
+							tasrun->tc_temp[0] = TC_Validate_NewCmd(tasrun);
+							if(tasrun->tc_temp[0]){
+								serial_interface_output(tasrun->tc_temp, 1);
+							}else{
+								instance.state = SERIAL_TC_COMMAND;
+							}
 						}
 						break;
 					case '\x81': // Reset TC buffered commands
-						TC_Reset(instance.tasrun);
+						TC_Reset(TASRunGetByIndex(RUN_A));
+						serial_interface_output((uint8_t*)"\x81", 1); // ack reset
 						break;
 					default: // Error: prefix not understood
 						serial_interface_output((uint8_t*)"\xFF", 1);
@@ -166,7 +169,8 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				}
 				break;
 			case SERIAL_TC_COMMAND:
-				if(TC_RecCmdByte(instance.tasrun, input)){
+				if(TC_RecCmdByte(TASRunGetByIndex(RUN_A), input)){
+					serial_interface_output((uint8_t*)"\x80", 1); // ack command
 					instance.state = SERIAL_COMPLETE;
 				}
 				break;

@@ -12,23 +12,22 @@ import argparse_helper
 
 DEBUG = False
 
-int_buffer = 1024 # internal buffer size on replay device
+int_buffer = 1000 # internal buffer size on replay device
 
 class CRC():
     def __init__(self):
         self.table = []
-        u32 r, i; u8 counter;
-    	for i in range(256):
-    		r = i
-    		for counter in range(8):
-    			r = (0 if (r & 1) else 0xEDB88320) ^ (r >> 1)
-    		table.append(r ^ 0xFF000000)
+        for i in range(256):
+            r = i
+            for counter in range(8):
+                r = (0 if (r & 1) else 0xEDB88320) ^ (r >> 1)
+                self.table.append(r ^ 0xFF000000)
     
     def crc(self, data):
-    	state = 0
-    	for i in range(len(data)):
-    		state = self.table[(state & 0xFF) ^ data[i]] ^ (state >> 8)
-    	return state
+        state = 0
+        for i in range(len(data)):
+            state = self.table[(state & 0xFF) ^ data[i]] ^ (state >> 8)
+            return state
 
 class Z64TC():
     def __init__(self, ser, runfilepath):
@@ -99,7 +98,7 @@ class Z64TC():
         rumble_replies = []
         c = self.read(1)
         if len(c) == 0:
-            return None
+            return rumble_replies
         numExtraBytes = self.ser.inWaiting()
         if numExtraBytes > 0:
             c += self.read(numExtraBytes)
@@ -109,6 +108,8 @@ class Z64TC():
         mempak_cmd_args = ['player', 'addr hi', 'addr lo', 'd[0]']
         responses = [
             {'c': 0x41, 'l': 1, 's': 'Poll', 'a': ['player']},
+            {'c': 0x80, 'l': 0, 's': 'Acknowledge TC buffer command', 'a': []},
+            {'c': 0x81, 'l': 0, 's': 'Acknowledge TC buffered reset', 'a': []},
             {'c': 0xB0, 'l': 0, 's': 'Buffer Overflow', 'a': []},
             {'c': 0xB2, 'l': 0, 's': 'Buffer Underflow', 'a': []},
             {'c': 0xB3, 'l': 0, 's': 'Buffer Empty (normal at end of run)', 'a': []},
@@ -133,7 +134,8 @@ class Z64TC():
             {'c': 0x9A, 'l': 0, 's': 'Mempak read cmd wrong len', 'a': []},
             {'c': 0x9B, 'l': 0, 's': 'Mempak write cmd wrong len', 'a': []},
             {'c': 0x9C, 'l': 0, 's': 'Mempak cmd bad addr CRC', 'a': []},
-            {'c': 0x9D, 'l': 0, 's': 'Received rumble not 0/1', 'a': []}
+            {'c': 0x9D, 'l': 0, 's': 'Received rumble not 0/1', 'a': []},
+            {'c': 0xFF, 'l': 0, 's': 'Unknown serial command', 'a': []},
         ]
         i = 0
         while i < len(c):
@@ -153,13 +155,13 @@ class Z64TC():
         return rumble_replies
 
     def get_next_file(self):
-        l = runfile.readline()
+        l = self.runfile.readline()
         if not l:
             return None
-        l = l.decode(encoding='UTF-8').strip()
+        l = l.strip()
         toks = [t for t in l.split(' ') if t]
         if toks[0] == 'FIXED':
-            ifilepath = runfilepath[:-4] + '/' + toks[1]
+            ifilepath = self.runfilepath[:self.runfilepath.rfind('/')] + '/' + toks[1]
             with open(ifilepath, 'rb') as i:
                 self.ifile = i.read()
             self.ifileaddr = None
@@ -181,13 +183,9 @@ class Z64TC():
             raise ValueError('Unknown run file type: ' + toks[0])
             
     def get_next_command(self):
-        if not self.ifile:
-            if not self.get_next_file():
-                return None
         sendbytes = len(self.ifile) - self.ifilepos
         if sendbytes == 0:
-            self.ifile = None
-            return 'WAIT'
+            return None
         elif sendbytes >= 81:
             sendbytes = 81
             cmd_without_crc = struct.pack('>I81sB', self.ifileaddr + self.ifilepos, 
@@ -195,20 +193,72 @@ class Z64TC():
         else:
             cmd_without_crc = struct.pack('>I80sBB', self.ifileaddr + self.ifilepos,
                 self.ifile[self.ifilepos:], sendbytes, 2)
-        self.ifileaddr += sendbytes
-        return struct.pack('>I86s', crc.crc(cmd_without_crc), cmd_without_crc)
+        self.ifilepos += sendbytes
+        return struct.pack('>I86s', self.crc.crc(cmd_without_crc), cmd_without_crc)
+        
+    def ifile_reset():
+        print('Resetting injection of ' + self.ifileaddr)
+        self.ifilepos = 0
+
+    def command_to_controllers(self, cmd):
+        assert(len(cmd) == 90)
+        d = bytearray(cmd + b'\0\0\0\0\0\0')
+        temp = 0
+        for j in range(92>>2, -1, -1):
+            temp <<= 2
+            b = d[(j<<2)+1]
+            temp |= b >> 6
+            d[(j<<2)+1] = b & 0x3F
+        for j in range(95, 89, -1):
+            d[j] = temp & (0x3F if j == 93 else 0xFF)
+            temp >>= (6 if j == 93 else 8)
+        return b'\x80' + bytes(d)
+        #return b'\x80' + b'\x00' * 96
 
     def main_loop(self):
-        while True:
-            try:
-                rumble_replies = self.read_replies()
-                print(self.get_next_command())
-            except serial.SerialException:
-                print('ERROR: Serial Exception caught!')
-                break
-            except KeyboardInterrupt:
-                print('^C Exiting')
-                break
+        try:
+            while True:
+                if not self.get_next_file():
+                    print('End of injection')
+                    return
+                def reset_file():
+                    nonlocal in_flight, nothing_happened, cmd
+                    self.ifilepos = 0
+                    in_flight = 0
+                    nothing_happened = 0
+                    cmd = self.get_next_command()
+                    self.write(b'\x81')
+                reset_file()
+                while True:
+                    if cmd is not None and in_flight < int_buffer:
+                        ctrl_cmd = self.command_to_controllers(cmd)
+                        print('Multipoll:', ctrl_cmd)
+                        self.write(ctrl_cmd)
+                        cmd = self.get_next_command()
+                        in_flight += 1
+                    rumble_replies = self.read_replies()
+                    for rr in rumble_replies:
+                        if rr == 0x95:
+                            # Nop
+                            pass
+                        elif rr == 0x96:
+                            # OK
+                            in_flight -= 1
+                            nothing_happened = 0
+                        else:
+                            # Bad cmd / error / etc.
+                            print('Injection error, restarting file!')
+                            reset_file()
+                    nothing_happened += 1
+                    if nothing_happened >= 100000:
+                        print('Nothing happened for too long, restarting file!')
+                        reset_file()
+                    if cmd is None and in_flight == 0:
+                        break
+        except serial.SerialException:
+            print('ERROR: Serial Exception caught!')
+        except KeyboardInterrupt:
+            print('^C Exiting')
 
 def main():
     global DEBUG
@@ -222,12 +272,11 @@ def main():
     assert(sys.argv[1].endswith('.txt'))
     dev = Z64TC(serial_helper.select_serial_port(), sys.argv[1])
     
-    try:
-        dev.reset()
-        dev.setup_run()
-        print('Main Loop Start')
-        dev.main_loop()
-        dev.reset()
+    dev.reset()
+    dev.setup_run()
+    print('Main Loop Start')
+    dev.main_loop()
+    dev.reset()
     sys.exit(0)
 
 if __name__ == '__main__':

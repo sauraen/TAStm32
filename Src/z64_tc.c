@@ -18,20 +18,27 @@ void TC_Reset(TASRun *tasrun) {
 	tasrun->tc_nextctrlr = 3;
 	tasrun->tc_state = 0xFF;
 	tasrun->tc_rumble_response = 0;
+	tasrun->tc_rumble_rec_mask = 0;
 
 	__enable_irq();
 }
 
 uint8_t TC_Validate_NewCmd(TASRun *tasrun){
-	if(tasrun->tc_byte_write != 0) return 0x98;
-	if(tasrun->tc_cmds_avail >= TC_MAX_COMMANDS) return 0x99;
-	return 0;
+	uint8_t ret = 0;
+	__disable_irq();
+	if(tasrun->tc_byte_write != 0) ret = 0x98;
+	if(tasrun->tc_cmds_avail >= TC_MAX_COMMANDS) ret = 0x99;
+	__enable_irq();
+	return ret;
 }
 
 uint8_t TC_RecCmdByte(TASRun *tasrun, uint8_t input){
-	tasrun->tcData[tasrun->tc_cmd_write][tasrun->tc_byte_write] = input;
-	if(++tasrun->tc_byte_write < TC_COMMAND_SIZE) return 0;
 	__disable_irq();
+	tasrun->tcData[tasrun->tc_cmd_write][tasrun->tc_byte_write] = input;
+	if(++tasrun->tc_byte_write < TC_COMMAND_SIZE){
+		__enable_irq();
+		return 0;
+	}
 	tasrun->tc_byte_write = 0;
 	++tasrun->tc_cmd_write;
 	if(tasrun->tc_cmd_write >= TC_MAX_COMMANDS) tasrun->tc_cmd_write = 0;
@@ -65,6 +72,10 @@ void TC_Poll(TASRun *tasrun, uint8_t player){
 			tasrun->tc_byte_read += 4;
 			if(tasrun->tc_byte_read >= TC_COMMAND_SIZE){
 				tasrun->tc_state = 0xFF;
+				tasrun->tc_byte_read = 0;
+				++tasrun->tc_cmd_read;
+				if(tasrun->tc_cmd_read >= TC_MAX_COMMANDS) tasrun->tc_cmd_read = 0;
+				--tasrun->tc_cmds_avail;
 			}
 			tasrun->tc_nextctrlr = NEXT_CTRLR(player);
 			return;
@@ -97,6 +108,7 @@ void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *re
 	 * (only one controller per frame is probed, except when rumble is supposed to stop
 	 * in which case all four are in order 0-3)
 	 */
+	*resultlen = 0;
 	//Result already has: Mempak write, player, addr hi, addr lo
 	if(cmd_bytes != 3){
 		result[(*resultlen)++] = 0x9A;
@@ -116,6 +128,7 @@ void TC_MempakRead(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *re
 }
 void TC_MempakWrite(TASRun *tasrun, uint8_t player, int8_t cmd_bytes, uint8_t *result, uint8_t *resultlen){
 	//Result already has: Mempak write, player, addr hi, addr lo, data 0
+	*resultlen = 0;
 	if(cmd_bytes != 0x23){
 		result[(*resultlen)++] = 0x9B;
 		return;
