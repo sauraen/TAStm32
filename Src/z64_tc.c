@@ -59,26 +59,39 @@ void TC_Got_Reset(TASRun *tasrun, uint8_t player){
 	tasrun->tc_nextctrlr = NEXT_CTRLR(player);
 }
 
-void TC_Poll(TASRun *tasrun, uint8_t player){
-	if(tasrun->tc_nextctrlr == player && tasrun->tc_cmds_avail > 0){
-		if(tasrun->tc_state <= 1 && player == 3){
-			//Either just did rumble or just did identity (there was no rumble)
-			tasrun->tc_state = 2;
-			tasrun->tc_byte_read = 0;
-		}
-		if(tasrun->tc_state == 2){
-			//Normal poll
-			GCN64_SendData(&tasrun->tcData[tasrun->tc_cmd_read][tasrun->tc_byte_read], 4, player);
-			tasrun->tc_byte_read += 4;
-			if(tasrun->tc_byte_read >= TC_COMMAND_SIZE){
-				tasrun->tc_state = 0xFF;
+void TC_Poll(TASRun *tasrun, uint8_t player, uint8_t *result, uint8_t *resultlen){
+	*resultlen = 0;
+	//result[(*resultlen)++] = 0xC8;
+	//result[(*resultlen)++] = player;
+	if(tasrun->tc_state != 0xFF){
+		if(tasrun->tc_nextctrlr != player){
+			result[(*resultlen)++] = 0xCB;
+		}else if(tasrun->tc_cmds_avail == 0){
+			result[(*resultlen)++] = 0xCC;
+		}else{
+			if(tasrun->tc_state <= 1 && player == 3){
+				//Either just did rumble or just did identity (there was no rumble)
+				tasrun->tc_state = 2;
 				tasrun->tc_byte_read = 0;
-				++tasrun->tc_cmd_read;
-				if(tasrun->tc_cmd_read >= TC_MAX_COMMANDS) tasrun->tc_cmd_read = 0;
-				--tasrun->tc_cmds_avail;
+				result[(*resultlen)++] = 0xC9;
+				result[(*resultlen)++] = tasrun->tcData[tasrun->tc_cmd_read][0];
 			}
-			tasrun->tc_nextctrlr = NEXT_CTRLR(player);
-			return;
+			if(tasrun->tc_state == 2){
+				//Normal poll
+				GCN64_SendData(&tasrun->tcData[tasrun->tc_cmd_read][tasrun->tc_byte_read], 4, player);
+				tasrun->tc_byte_read += 4;
+				if(tasrun->tc_byte_read >= TC_COMMAND_SIZE){
+					result[(*resultlen)++] = 0xCA;
+					result[(*resultlen)++] = tasrun->tcData[tasrun->tc_cmd_read][TC_COMMAND_SIZE-1];
+					tasrun->tc_state = 0xFF;
+					tasrun->tc_byte_read = 0;
+					++tasrun->tc_cmd_read;
+					if(tasrun->tc_cmd_read >= TC_MAX_COMMANDS) tasrun->tc_cmd_read = 0;
+					--tasrun->tc_cmds_avail;
+				}
+				tasrun->tc_nextctrlr = NEXT_CTRLR(player);
+				return;
+			}
 		}
 	}
 	tasrun->tc_state = 0xFF;

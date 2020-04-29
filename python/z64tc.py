@@ -21,13 +21,13 @@ class CRC():
             r = i
             for counter in range(8):
                 r = (0 if (r & 1) else 0xEDB88320) ^ (r >> 1)
-                self.table.append(r ^ 0xFF000000)
+            self.table.append(r ^ 0xFF000000)
     
     def crc(self, data):
         state = 0
         for i in range(len(data)):
             state = self.table[(state & 0xFF) ^ data[i]] ^ (state >> 8)
-            return state
+        return state
 
 class Z64TC():
     def __init__(self, ser, runfilepath):
@@ -107,7 +107,6 @@ class Z64TC():
         unk_cmd_args = ['player', 'sercmd', 'bytes']
         mempak_cmd_args = ['player', 'addr hi', 'addr lo', 'd[0]']
         responses = [
-            {'c': 0x41, 'l': 1, 's': 'Poll', 'a': ['player']},
             {'c': 0x80, 'l': 0, 's': 'Acknowledge TC buffer command', 'a': []},
             {'c': 0x81, 'l': 0, 's': 'Acknowledge TC buffered reset', 'a': []},
             {'c': 0xB0, 'l': 0, 's': 'Buffer Overflow', 'a': []},
@@ -121,6 +120,11 @@ class Z64TC():
             {'c': 0xC5, 'l': 1, 's': 'Controller reset', 'a': ['player']},
             {'c': 0xC6, 'l': 3, 's': 'Mempak read', 'a': mempak_cmd_args[:-1]},
             {'c': 0xC7, 'l': 4, 's': 'Mempak write', 'a': mempak_cmd_args},
+            {'c': 0xC8, 'l': 1, 's': 'Normal poll', 'a': ['player']},
+            {'c': 0xC9, 'l': 1, 's': 'Poll starting new command', 'a': ['d0']},
+            {'c': 0xCA, 'l': 1, 's': 'Poll finished command', 'a': ['d95']},
+            {'c': 0xCB, 'l': 0, 's': 'Poll wrong player', 'a': []},
+            {'c': 0xCC, 'l': 0, 's': 'Poll no commands available', 'a': []},
             {'c': 0x90, 'l': 0, 's': 'Rumble received: 000 (Error)', 'a': []},
             {'c': 0x91, 'l': 0, 's': 'Rumble received: 001 (CRC Fail)', 'a': []},
             {'c': 0x92, 'l': 0, 's': 'Rumble received: 010 (Q False)', 'a': []},
@@ -194,13 +198,20 @@ class Z64TC():
             cmd_without_crc = struct.pack('>I80sBB', self.ifileaddr + self.ifilepos,
                 self.ifile[self.ifilepos:], sendbytes, 2)
         self.ifilepos += sendbytes
+        # cmd_without_crc =   b'\xBB\xAA\x99\x88\x77\x66\x55\x44\x33\x22\x11\x00' + \
+        #     b'\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF' + \
+        #     b'\x01\x23\x45\x67\x89\xAB\xCD\xEF\xFE\xDC\xBA\x98\x76\x54\x32\x10' + \
+        #     b'\xA5\xA5\xA5\xA5\x5A\x5A\x5A\x5A\x00\x00\x00\x00\xFF\xFF\xFF\xFF' + \
+        #     b'\x69\x69\x69\x69\x13\x37\x13\x37\x04\x20\x04\x20\x04\x20\x04\x20' + \
+        #     b'\xDE\xAD\xBE\xEF\xB0\x0B\xFA\xCE\xDE\xAD'
         return struct.pack('>I86s', self.crc.crc(cmd_without_crc), cmd_without_crc)
         
-    def ifile_reset():
+        
+    def ifile_reset(self):
         print('Resetting injection of ' + self.ifileaddr)
         self.ifilepos = 0
 
-    def command_to_controllers(self, cmd):
+    def command_to_controllers(cmd):
         assert(len(cmd) == 90)
         d = bytearray(cmd + b'\0\0\0\0\0\0')
         temp = 0
@@ -212,8 +223,14 @@ class Z64TC():
         for j in range(95, 89, -1):
             d[j] = temp & (0x3F if j == 93 else 0xFF)
             temp >>= (6 if j == 93 else 8)
+        # Reverse to be controllers 3, 2, 1
+        for j in range(8):
+            for k in range(4):
+                d[12*j+k], d[12*j+k+8] = d[12*j+k+8], d[12*j+k]
+        # d = b'\x00' * 96
+        assert(len(d) == 96)
         return b'\x80' + bytes(d)
-        #return b'\x80' + b'\x00' * 96
+            
 
     def main_loop(self):
         try:
@@ -222,17 +239,18 @@ class Z64TC():
                     print('End of injection')
                     return
                 def reset_file():
-                    nonlocal in_flight, nothing_happened, cmd
+                    nonlocal in_flight, nothing_happened, ready, cmd
                     self.ifilepos = 0
                     in_flight = 0
                     nothing_happened = 0
+                    ready = False
                     cmd = self.get_next_command()
                     self.write(b'\x81')
                 reset_file()
                 while True:
-                    if cmd is not None and in_flight < int_buffer:
-                        ctrl_cmd = self.command_to_controllers(cmd)
-                        print('Multipoll:', ctrl_cmd)
+                    if cmd is not None and ready and in_flight < int_buffer:
+                        ctrl_cmd = Z64TC.command_to_controllers(cmd)
+                        #print('Multipoll:', ctrl_cmd)
                         self.write(ctrl_cmd)
                         cmd = self.get_next_command()
                         in_flight += 1
@@ -240,15 +258,20 @@ class Z64TC():
                     for rr in rumble_replies:
                         if rr == 0x95:
                             # Nop
-                            pass
-                        elif rr == 0x96:
-                            # OK
+                            if not ready:
+                                print('Received nop, starting injection')
+                            ready = True
+                        elif rr in (0x92, 0x93, 0x94, 0x96):
+                            # Q False, Q True, Bad cmd, OK
                             in_flight -= 1
                             nothing_happened = 0
                         else:
-                            # Bad cmd / error / etc.
-                            print('Injection error, restarting file!')
-                            reset_file()
+                            # CRC fail or rumble comm fail
+                            if ready:
+                                print('Injection error, restarting file!')
+                                reset_file()
+                            else:
+                                print('Ignoring CRC fail because not yet ready')
                     nothing_happened += 1
                     if nothing_happened >= 100000:
                         print('Nothing happened for too long, restarting file!')

@@ -1041,9 +1041,7 @@ void GCN64CommandStart(uint8_t player)
 			if(cmd_bytes != 1){
 				result[0] = 0xC1;
 			}else if(c == CONSOLE_Z64TC){
-				TC_Poll(tasrun, player);
-				result[0] = 'A';
-				resultlen = 2;
+				TC_Poll(tasrun, player, result, &resultlen);
 			}else if(GCN64_ValidatePoll(tasrun, player, result, &resultlen)){
 				GCN64_SendData((uint8_t*)&((*tasrun->current)[player][0].n64_data), 4, player);
 			}else{
@@ -1114,7 +1112,7 @@ void GCN64CommandStart(uint8_t player)
 	}
 	*/
 
-	if((result[0] == 0xC4 || result[0] == 'A') && resultlen == 2){
+	if(result[0] == 0xC4 && resultlen == 2){
 		return; //No need to spam identity/poll
 	}
 

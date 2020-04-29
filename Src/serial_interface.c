@@ -170,7 +170,7 @@ void serial_interface_consume(uint8_t *buffer, uint32_t n)
 				break;
 			case SERIAL_TC_COMMAND:
 				if(TC_RecCmdByte(TASRunGetByIndex(RUN_A), input)){
-					serial_interface_output((uint8_t*)"\x80", 1); // ack command
+					//serial_interface_output((uint8_t*)"\x80", 1); // ack command
 					instance.state = SERIAL_COMPLETE;
 				}
 				break;
