@@ -50,6 +50,7 @@ class Z64TC():
         self.ifile = None
         self.ifileaddr = None
         self.ifilepos = 0
+        self.callstart = False
         self.crc = CRC()
     
     def __del__(self):
@@ -164,7 +165,7 @@ class Z64TC():
             return None
         l = l.strip()
         toks = [t for t in l.split(' ') if t]
-        if toks[0] == 'FIXED':
+        if toks[0] == 'FIXED' or toks[0] == 'FIXED_AND_CALL_START':
             ifilepath = self.runfilepath[:self.runfilepath.rfind('/')] + '/' + toks[1]
             with open(ifilepath, 'rb') as i:
                 self.ifile = i.read()
@@ -181,6 +182,7 @@ class Z64TC():
             if not self.ifileaddr:
                 raise RuntimeError('Could not find start address for fixed injection data file')
             self.ifilepos = 0
+            self.callstart = (toks[0] == 'FIXED_AND_CALL_START')
             print('Injecting ' + ifilepath + ' to ' + hex(self.ifileaddr))
             return True
         else:
@@ -188,8 +190,11 @@ class Z64TC():
             
     def get_next_command(self):
         sendbytes = len(self.ifile) - self.ifilepos
-        if sendbytes == 0:
+        if sendbytes < 0 or (sendbytes == 0 and not self.callstart):
             return None
+        elif sendbytes == 0:
+            sendbytes = 1 # so that 1 is added to ifilepos
+            cmd_without_crc = struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
         elif sendbytes >= 81:
             sendbytes = 81
             cmd_without_crc = struct.pack('>I81sB', self.ifileaddr + self.ifilepos, 
