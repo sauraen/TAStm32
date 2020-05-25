@@ -50,14 +50,34 @@ class Z64TC():
         self.ifile = None
         self.ifileaddr = None
         self.ifilepos = 0
-        self.callstart = False
+        self.ifilemode = None
+        self.replacenum = None
+        self.patchaddr = None
+        self.dataaddr = 0x80410000
+        dmaoutldpath = self.get_rel_path('../loader/dma_patcher/dma_patcher.out.ld')
+        self.dmapatcher_replacefile_fp = self.get_addr_from_outld(dmaoutldpath, 'DmaPatcher_ReplaceFile')
+        self.dmapatcher_addpatch_fp = self.get_addr_from_outld(dmaoutldpath, 'DmaPatcher_AddPatch')
         self.crc = CRC()
     
     def __del__(self):
         print('Exiting')
         self.ser.close()
         self.runfile.close()
+    
+    def get_rel_path(self, p):
+        return self.runfilepath[:self.runfilepath.rfind('/')] + '/' + p
 
+    def get_addr_from_outld(self, outldpath, func):
+        with open(outldpath) as ld:
+            for ldl in ld:
+                ldtoks = [t for t in ldl.strip().split(' ') if t]
+                assert(len(ldtoks) == 3)
+                assert(ldtoks[1] == '=')
+                assert(ldtoks[2][-1] == ';')
+                if ldtoks[0] == func:
+                    return int(ldtoks[2][:-1], 16)
+        raise RuntimeError('Could not find function ' + func + ' in ' + outldpath)
+        
     def write(self, data):
         count = self.ser.write(data)
         if DEBUG and data != b'':
@@ -158,43 +178,66 @@ class Z64TC():
             print(resp['s'], *[resp['a'][j] + '=' + hex(c[i+j]) + ',' for j in range(resp['l'])])
             i += resp['l']
         return rumble_replies
-
+        
     def get_next_file(self):
         l = self.runfile.readline()
         if not l:
             return None
         l = l.strip()
         toks = [t for t in l.split(' ') if t]
-        if toks[0] == 'FIXED' or toks[0] == 'FIXED_AND_CALL_START':
-            ifilepath = self.runfilepath[:self.runfilepath.rfind('/')] + '/' + toks[1]
+        def load_ifile(ifilepath):
             with open(ifilepath, 'rb') as i:
                 self.ifile = i.read()
-            self.ifileaddr = None
-            with open(ifilepath[:-4] + '.out.ld') as ld:
-                for ldl in ld:
-                    ldtoks = [t for t in ldl.strip().split(' ') if t]
-                    assert(len(ldtoks) == 3)
-                    assert(ldtoks[1] == '=')
-                    assert(ldtoks[2][-1] == ';')
-                    if ldtoks[0].endswith('_START'):
-                        self.ifileaddr = int(ldtoks[2][:-1], 16)
-                        break
-            if not self.ifileaddr:
-                raise RuntimeError('Could not find start address for fixed injection data file')
             self.ifilepos = 0
-            self.callstart = (toks[0] == 'FIXED_AND_CALL_START')
+        def next_addr():
+            self.ifileaddr = self.dataaddr
+            self.dataaddr = ((self.dataaddr + len(self.ifile) + 15) >> 4) << 4
+        if toks[0] == 'FIXED' or toks[0] == 'FIXED_AND_CALL_START':
+            assert(len(toks) == 2)
+            ifilepath = self.get_rel_path(toks[1])
+            basepath = ifilepath[:-4]
+            basename = basepath[basepath.rfind('/')+1:]
+            load_ifile(ifilepath)
+            self.ifileaddr = self.get_addr_from_outld(basepath + '.out.ld', basename + '_START')
+            self.ifilemode = 'callstart' if toks[0] == 'FIXED_AND_CALL_START' else 'normal'
             print('Injecting ' + ifilepath + ' to ' + hex(self.ifileaddr))
-            return True
+        elif toks[0] == 'REPLACEFILE':
+            assert(len(toks) == 3)
+            self.replacenum = int(toks[1])
+            load_ifile(self.get_rel_path(toks[2]))
+            next_addr()
+            self.ifilemode = 'replacefile'
+            print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
+                + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
+        elif toks[0] == 'PATCH':
+            assert(len(toks) == 3)
+            self.patchaddr = int(toks[1], 16)
+            patchpath = self.get_rel_path(toks[2])
+            assert(patchpath.endswith('.pat'))
+            load_ifile(patchpath)
+            next_addr()
+            self.ifilemode = 'patch'
+            print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
         else:
             raise ValueError('Unknown run file type: ' + toks[0])
+        return True
             
     def get_next_command(self):
         sendbytes = len(self.ifile) - self.ifilepos
-        if sendbytes < 0 or (sendbytes == 0 and not self.callstart):
+        if sendbytes < 0 or (sendbytes == 0 and self.ifilemode == 'normal'):
             return None
         elif sendbytes == 0:
             sendbytes = 1 # so that 1 is added to ifilepos
-            cmd_without_crc = struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
+            if self.ifilemode == 'callstart':
+                cmd_without_crc = struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
+            elif self.ifilemode == 'replace':
+                cmd_without_crc = struct.pack('>5I65xB', self.dmapatcher_replacefile_fp, 
+                    self.replacenum, self.ifileaddr, len(self.ifile), 0, 7)
+            elif self.ifilemode == 'patch':
+                cmd_without_crc = struct.pack('>5I65xB', self.dmapatcher_addpatch_fp, 
+                    self.patchaddr, self.ifileaddr, 0, 0, 7)
+            else:
+                raise RuntimeError('Internal inconsistency in get_next_command!')
         elif sendbytes >= 81:
             sendbytes = 81
             cmd_without_crc = struct.pack('>I81sB', self.ifileaddr + self.ifilepos, 
