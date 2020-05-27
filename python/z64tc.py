@@ -29,39 +29,19 @@ class CRC():
             state = self.table[(state & 0xFF) ^ data[i]] ^ (state >> 8)
         return state
 
-class Z64TC():
-    def __init__(self, ser, runfilepath):
-        att = 0
-        while att < 5:
-            try:
-                self.ser = serial.Serial(ser, 115200, timeout=0)
-                break
-            except serial.SerialException:
-                att += 1
-                self.ser = None
-                continue
-        if self.ser == None:
-            print ('ERROR: the specified interface (' + ser + ') is in use')
-            sys.exit(0)
+class InjectionMain():
+    def __init__(self, runfilepath):
+        self.crc = CRC()
+        self.dataaddr = 0x80410000
         assert(runfilepath.endswith('.txt'))
         self.runfilepath = runfilepath
         self.runfile = open(runfilepath, 'r')
         print('Opened runfile ' + runfilepath)
-        self.ifile = None
-        self.ifileaddr = None
-        self.ifilepos = 0
-        self.ifilemode = None
-        self.replacenum = None
-        self.patchaddr = None
-        self.dataaddr = 0x80410000
         dmaoutldpath = self.get_rel_path('../loader/dma_patcher/dma_patcher.out.ld')
         self.dmapatcher_replacefile_fp = self.get_addr_from_outld(dmaoutldpath, 'DmaPatcher_ReplaceFile')
         self.dmapatcher_addpatch_fp = self.get_addr_from_outld(dmaoutldpath, 'DmaPatcher_AddPatch')
-        self.crc = CRC()
-    
+        
     def __del__(self):
-        print('Exiting')
-        self.ser.close()
         self.runfile.close()
     
     def get_rel_path(self, p):
@@ -77,7 +57,164 @@ class Z64TC():
                 if ldtoks[0] == func:
                     return int(ldtoks[2][:-1], 16)
         raise RuntimeError('Could not find function ' + func + ' in ' + outldpath)
+    
+    def get_and_inc_dataaddr(sz):
+        ret = self.dataaddr
+        self.dataaddr = ((self.dataaddr + sz + 15) >> 4) << 4
+        return ret
+    
+    def get_next_file(self):
+        l = self.runfile.readline()
+        if not l:
+            return None
+        l = l.strip()
+        toks = [t for t in l.split(' ') if t]
+        if toks[0] == 'FIXED' or toks[0] == 'FIXED_AND_CALL_START':
+            self.injector = FixedInjector(self, toks)
+        elif toks[0] == 'REPLACEFILE':
+            self.injector = ReplaceFileInjector(self, toks)
+        elif toks[0] == 'PATCH':
+            self.injector = PatchInjector(self, toks)
+        else:
+            raise ValueError('Unknown run file type: ' + toks[0])
+        return True
+    
+    def get_next_command(self):
+        return self.injector.get_next_command()
+    
+    def reset_command(self):
+        self.injector.reset()
+
+
+class Injector():
+    def __init__(self, parent):
+        self.parent = parent
+        self.ifile = None
+        self.ifileaddr = None
+        self.ifilepos = 0
+        self.state = 0
         
+    def reset(self):
+        print('Resetting injection of ' + self.ifileaddr)
+        self.ifilepos = 0
+        self.state = 0
+    
+    def get_next_command(self):
+        cmd_without_crc = self.next_cmd()
+        if cmd_without_crc is None:
+            return None
+        # cmd_without_crc =   b'\xBB\xAA\x99\x88\x77\x66\x55\x44\x33\x22\x11\x00' + \
+        #     b'\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF' + \
+        #     b'\x01\x23\x45\x67\x89\xAB\xCD\xEF\xFE\xDC\xBA\x98\x76\x54\x32\x10' + \
+        #     b'\xA5\xA5\xA5\xA5\x5A\x5A\x5A\x5A\x00\x00\x00\x00\xFF\xFF\xFF\xFF' + \
+        #     b'\x69\x69\x69\x69\x13\x37\x13\x37\x04\x20\x04\x20\x04\x20\x04\x20' + \
+        #     b'\xDE\xAD\xBE\xEF\xB0\x0B\xFA\xCE\xDE\xAD'
+        assert(len(cmd_without_crc) == 86)
+        return struct.pack('>I86s', crc.crc(cmd_without_crc), cmd_without_crc)
+    
+    def next_cmd_file(self):
+        sendbytes = len(self.ifile) - self.ifilepos
+        if sendbytes == 0:
+            return None
+        elif sendbytes >= 81:
+            sendbytes = 81
+            cmd_without_crc = struct.pack('>I81sB', self.ifileaddr + self.ifilepos, 
+                self.ifile[self.ifilepos:self.ifilepos+81], 1)
+        else:
+            cmd_without_crc = struct.pack('>I80sBB', self.ifileaddr + self.ifilepos,
+                self.ifile[self.ifilepos:], sendbytes, 2)
+        self.ifilepos += sendbytes
+        
+    def load_ifile(ifilepath):
+        with open(ifilepath, 'rb') as i:
+            self.ifile = i.read()
+        self.ifilepos = 0
+        
+class FixedInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(self, parent)
+        assert(len(toks) == 2)
+        ifilepath = parent.get_rel_path(toks[1])
+        basepath = ifilepath[:-4]
+        basename = basepath[basepath.rfind('/')+1:]
+        load_ifile(ifilepath)
+        self.ifileaddr = parent.get_addr_from_outld(basepath + '.out.ld', basename + '_START')
+        self.callstart = toks[0] == 'FIXED_AND_CALL_START'
+        print('Injecting ' + ifilepath + ' to ' + hex(self.ifileaddr))
+        
+    def next_cmd(self):
+        fcmd = self.next_cmd_file()
+        if fcmd is not None:
+            return fcmd
+        if self.state == 0:
+            self.state = 1
+            return struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
+        return None
+
+class ReplaceFileInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(self, parent)
+        assert(len(toks) == 3)
+        self.replacenum = int(toks[1])
+        load_ifile(parent.get_rel_path(toks[2]))
+        self.ifileaddr = parent.get_and_inc_dataaddr()
+        print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
+            + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
+            
+    def next_cmd(self):
+        fcmd = self.next_cmd_file()
+        if fcmd is not None:
+            return fcmd
+        if self.state == 0:
+            self.state = 1
+            return struct.pack('>5I65xB', parent.dmapatcher_replacefile_fp, 
+                self.replacenum, self.ifileaddr, len(self.ifile), 0, 7)
+        return None
+
+class PatchInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(self, parent)
+        assert(len(toks) == 3)
+        self.patchaddr = int(toks[1], 16)
+        patchpath = parent.get_rel_path(toks[2])
+        assert(patchpath.endswith('.pat'))
+        load_ifile(patchpath)
+        self.ifileaddr = parent.get_and_inc_dataaddr()
+        print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
+        
+    def next_cmd(self):
+        fcmd = self.next_cmd_file()
+        if fcmd is not None:
+            return fcmd
+        if self.state == 0:
+            self.state = 1
+            return struct.pack('>5I65xB', parent.dmapatcher_addpatch_fp, 
+                self.patchaddr, self.ifileaddr, 0, 0, 7)
+        return None
+
+
+################################################################################
+
+class Z64TC():
+    def __init__(self, ser, runfilepath):
+        att = 0
+        while att < 5:
+            try:
+                self.ser = serial.Serial(ser, 115200, timeout=0)
+                break
+            except serial.SerialException:
+                att += 1
+                self.ser = None
+                continue
+        if self.ser == None:
+            print ('ERROR: the specified interface (' + ser + ') is in use')
+            sys.exit(0)
+        self.inj = InjectionMain(runfilepath)
+    
+    def __del__(self):
+        print('Exiting')
+        self.ser.close()
+    
     def write(self, data):
         count = self.ser.write(data)
         if DEBUG and data != b'':
@@ -178,87 +315,7 @@ class Z64TC():
             print(resp['s'], *[resp['a'][j] + '=' + hex(c[i+j]) + ',' for j in range(resp['l'])])
             i += resp['l']
         return rumble_replies
-        
-    def get_next_file(self):
-        l = self.runfile.readline()
-        if not l:
-            return None
-        l = l.strip()
-        toks = [t for t in l.split(' ') if t]
-        def load_ifile(ifilepath):
-            with open(ifilepath, 'rb') as i:
-                self.ifile = i.read()
-            self.ifilepos = 0
-        def next_addr():
-            self.ifileaddr = self.dataaddr
-            self.dataaddr = ((self.dataaddr + len(self.ifile) + 15) >> 4) << 4
-        if toks[0] == 'FIXED' or toks[0] == 'FIXED_AND_CALL_START':
-            assert(len(toks) == 2)
-            ifilepath = self.get_rel_path(toks[1])
-            basepath = ifilepath[:-4]
-            basename = basepath[basepath.rfind('/')+1:]
-            load_ifile(ifilepath)
-            self.ifileaddr = self.get_addr_from_outld(basepath + '.out.ld', basename + '_START')
-            self.ifilemode = 'callstart' if toks[0] == 'FIXED_AND_CALL_START' else 'normal'
-            print('Injecting ' + ifilepath + ' to ' + hex(self.ifileaddr))
-        elif toks[0] == 'REPLACEFILE':
-            assert(len(toks) == 3)
-            self.replacenum = int(toks[1])
-            load_ifile(self.get_rel_path(toks[2]))
-            next_addr()
-            self.ifilemode = 'replacefile'
-            print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
-                + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
-        elif toks[0] == 'PATCH':
-            assert(len(toks) == 3)
-            self.patchaddr = int(toks[1], 16)
-            patchpath = self.get_rel_path(toks[2])
-            assert(patchpath.endswith('.pat'))
-            load_ifile(patchpath)
-            next_addr()
-            self.ifilemode = 'patch'
-            print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
-        else:
-            raise ValueError('Unknown run file type: ' + toks[0])
-        return True
-            
-    def get_next_command(self):
-        sendbytes = len(self.ifile) - self.ifilepos
-        if sendbytes < 0 or (sendbytes == 0 and self.ifilemode == 'normal'):
-            return None
-        elif sendbytes == 0:
-            sendbytes = 1 # so that 1 is added to ifilepos
-            if self.ifilemode == 'callstart':
-                cmd_without_crc = struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
-            elif self.ifilemode == 'replace':
-                cmd_without_crc = struct.pack('>5I65xB', self.dmapatcher_replacefile_fp, 
-                    self.replacenum, self.ifileaddr, len(self.ifile), 0, 7)
-            elif self.ifilemode == 'patch':
-                cmd_without_crc = struct.pack('>5I65xB', self.dmapatcher_addpatch_fp, 
-                    self.patchaddr, self.ifileaddr, 0, 0, 7)
-            else:
-                raise RuntimeError('Internal inconsistency in get_next_command!')
-        elif sendbytes >= 81:
-            sendbytes = 81
-            cmd_without_crc = struct.pack('>I81sB', self.ifileaddr + self.ifilepos, 
-                self.ifile[self.ifilepos:self.ifilepos+81], 1)
-        else:
-            cmd_without_crc = struct.pack('>I80sBB', self.ifileaddr + self.ifilepos,
-                self.ifile[self.ifilepos:], sendbytes, 2)
-        self.ifilepos += sendbytes
-        # cmd_without_crc =   b'\xBB\xAA\x99\x88\x77\x66\x55\x44\x33\x22\x11\x00' + \
-        #     b'\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF' + \
-        #     b'\x01\x23\x45\x67\x89\xAB\xCD\xEF\xFE\xDC\xBA\x98\x76\x54\x32\x10' + \
-        #     b'\xA5\xA5\xA5\xA5\x5A\x5A\x5A\x5A\x00\x00\x00\x00\xFF\xFF\xFF\xFF' + \
-        #     b'\x69\x69\x69\x69\x13\x37\x13\x37\x04\x20\x04\x20\x04\x20\x04\x20' + \
-        #     b'\xDE\xAD\xBE\xEF\xB0\x0B\xFA\xCE\xDE\xAD'
-        return struct.pack('>I86s', self.crc.crc(cmd_without_crc), cmd_without_crc)
-        
-        
-    def ifile_reset(self):
-        print('Resetting injection of ' + self.ifileaddr)
-        self.ifilepos = 0
-
+    
     def command_to_controllers(cmd):
         assert(len(cmd) == 90)
         d = bytearray(cmd + b'\0\0\0\0\0\0')
@@ -278,21 +335,20 @@ class Z64TC():
         # d = b'\x00' * 96
         assert(len(d) == 96)
         return b'\x80' + bytes(d)
-            
-
+    
     def main_loop(self):
         try:
             while True:
-                if not self.get_next_file():
+                if not self.inj.get_next_file():
                     print('End of injection')
                     return
                 def reset_file():
                     nonlocal in_flight, nothing_happened, ready, cmd
-                    self.ifilepos = 0
+                    self.inj.reset_file()
                     in_flight = 0
                     nothing_happened = 0
                     ready = False
-                    cmd = self.get_next_command()
+                    cmd = self.inj.get_next_command()
                     self.write(b'\x81')
                 reset_file()
                 while True:
@@ -300,7 +356,7 @@ class Z64TC():
                         ctrl_cmd = Z64TC.command_to_controllers(cmd)
                         #print('Multipoll:', ctrl_cmd)
                         self.write(ctrl_cmd)
-                        cmd = self.get_next_command()
+                        cmd = self.inj.get_next_command()
                         in_flight += 1
                     rumble_replies = self.read_replies()
                     for rr in rumble_replies:
@@ -337,7 +393,7 @@ def main():
     if(os.name == 'nt'):
         psutil.Process().nice(psutil.REALTIME_PRIORITY_CLASS)
     else:
-        psutil.Process().nice(20) #it's -20, you bozos
+        psutil.Process().nice(20) #it's -20, you bozos, and you can't do this without sudo
     gc.disable()
     
     assert(sys.argv[1].endswith('.txt'))
