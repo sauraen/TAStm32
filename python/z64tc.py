@@ -82,7 +82,7 @@ class InjectionMain():
     def get_next_command(self):
         return self.injector.get_next_command()
     
-    def reset_command(self):
+    def reset_file(self):
         self.injector.reset()
 
 
@@ -95,7 +95,7 @@ class Injector():
         self.state = 0
         
     def reset(self):
-        print('Resetting injection of ' + self.ifileaddr)
+        print('Resetting injection of ' + hex(self.ifileaddr))
         self.ifilepos = 0
         self.state = 0
     
@@ -110,7 +110,7 @@ class Injector():
         #     b'\x69\x69\x69\x69\x13\x37\x13\x37\x04\x20\x04\x20\x04\x20\x04\x20' + \
         #     b'\xDE\xAD\xBE\xEF\xB0\x0B\xFA\xCE\xDE\xAD'
         assert(len(cmd_without_crc) == 86)
-        return struct.pack('>I86s', crc.crc(cmd_without_crc), cmd_without_crc)
+        return struct.pack('>I86s', self.parent.crc.crc(cmd_without_crc), cmd_without_crc)
     
     def next_cmd_file(self):
         sendbytes = len(self.ifile) - self.ifilepos
@@ -125,20 +125,20 @@ class Injector():
                 self.ifile[self.ifilepos:], sendbytes, 2)
         self.ifilepos += sendbytes
         
-    def load_ifile(ifilepath):
+    def load_ifile(self, ifilepath):
         with open(ifilepath, 'rb') as i:
             self.ifile = i.read()
         self.ifilepos = 0
         
 class FixedInjector(Injector):
     def __init__(self, parent, toks):
-        super().__init__(self, parent)
+        super().__init__(parent)
         assert(len(toks) == 2)
-        ifilepath = parent.get_rel_path(toks[1])
+        ifilepath = self.parent.get_rel_path(toks[1])
         basepath = ifilepath[:-4]
         basename = basepath[basepath.rfind('/')+1:]
-        load_ifile(ifilepath)
-        self.ifileaddr = parent.get_addr_from_outld(basepath + '.out.ld', basename + '_START')
+        self.load_ifile(ifilepath)
+        self.ifileaddr = self.parent.get_addr_from_outld(basepath + '.out.ld', basename + '_START')
         self.callstart = toks[0] == 'FIXED_AND_CALL_START'
         print('Injecting ' + ifilepath + ' to ' + hex(self.ifileaddr))
         
@@ -146,18 +146,18 @@ class FixedInjector(Injector):
         fcmd = self.next_cmd_file()
         if fcmd is not None:
             return fcmd
-        if self.state == 0:
+        if self.state == 0 and self.callstart:
             self.state = 1
             return struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
         return None
 
 class ReplaceFileInjector(Injector):
     def __init__(self, parent, toks):
-        super().__init__(self, parent)
+        super().__init__(parent)
         assert(len(toks) == 3)
         self.replacenum = int(toks[1])
-        load_ifile(parent.get_rel_path(toks[2]))
-        self.ifileaddr = parent.get_and_inc_dataaddr()
+        self.load_ifile(self.parent.get_rel_path(toks[2]))
+        self.ifileaddr = self.parent.get_and_inc_dataaddr()
         print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
             + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
             
@@ -167,19 +167,19 @@ class ReplaceFileInjector(Injector):
             return fcmd
         if self.state == 0:
             self.state = 1
-            return struct.pack('>5I65xB', parent.dmapatcher_replacefile_fp, 
+            return struct.pack('>5I65xB', self.parent.dmapatcher_replacefile_fp, 
                 self.replacenum, self.ifileaddr, len(self.ifile), 0, 7)
         return None
 
 class PatchInjector(Injector):
     def __init__(self, parent, toks):
-        super().__init__(self, parent)
+        super().__init__(parent)
         assert(len(toks) == 3)
         self.patchaddr = int(toks[1], 16)
-        patchpath = parent.get_rel_path(toks[2])
+        patchpath = self.parent.get_rel_path(toks[2])
         assert(patchpath.endswith('.pat'))
-        load_ifile(patchpath)
-        self.ifileaddr = parent.get_and_inc_dataaddr()
+        self.load_ifile(patchpath)
+        self.ifileaddr = self.parent.get_and_inc_dataaddr()
         print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
         
     def next_cmd(self):
@@ -188,7 +188,7 @@ class PatchInjector(Injector):
             return fcmd
         if self.state == 0:
             self.state = 1
-            return struct.pack('>5I65xB', parent.dmapatcher_addpatch_fp, 
+            return struct.pack('>5I65xB', self.parent.dmapatcher_addpatch_fp, 
                 self.patchaddr, self.ifileaddr, 0, 0, 7)
         return None
 
