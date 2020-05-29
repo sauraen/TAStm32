@@ -58,7 +58,7 @@ class InjectionMain():
                     return int(ldtoks[2][:-1], 16)
         raise RuntimeError('Could not find function ' + func + ' in ' + outldpath)
     
-    def get_and_inc_dataaddr(sz):
+    def get_and_inc_dataaddr(self, sz):
         ret = self.dataaddr
         self.dataaddr = ((self.dataaddr + sz + 15) >> 4) << 4
         return ret
@@ -124,6 +124,7 @@ class Injector():
             cmd_without_crc = struct.pack('>I80sBB', self.ifileaddr + self.ifilepos,
                 self.ifile[self.ifilepos:], sendbytes, 2)
         self.ifilepos += sendbytes
+        return cmd_without_crc
         
     def load_ifile(self, ifilepath):
         with open(ifilepath, 'rb') as i:
@@ -157,7 +158,7 @@ class ReplaceFileInjector(Injector):
         assert(len(toks) == 3)
         self.replacenum = int(toks[1])
         self.load_ifile(self.parent.get_rel_path(toks[2]))
-        self.ifileaddr = self.parent.get_and_inc_dataaddr()
+        self.ifileaddr = self.parent.get_and_inc_dataaddr(len(self.ifile))
         print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
             + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
             
@@ -179,7 +180,7 @@ class PatchInjector(Injector):
         patchpath = self.parent.get_rel_path(toks[2])
         assert(patchpath.endswith('.pat'))
         self.load_ifile(patchpath)
-        self.ifileaddr = self.parent.get_and_inc_dataaddr()
+        self.ifileaddr = self.parent.get_and_inc_dataaddr(len(self.ifile))
         print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
         
     def next_cmd(self):
