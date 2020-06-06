@@ -38,8 +38,12 @@ class InjectionMain():
         self.runfile = open(runfilepath, 'r')
         print('Opened runfile ' + runfilepath)
         dmaoutldpath = self.get_rel_path('../loader/dma_patcher/dma_patcher.out.ld')
-        self.dmapatcher_replacefile_fp = self.get_addr_from_outld(dmaoutldpath, 'DmaPatcher_ReplaceFile')
-        self.dmapatcher_addpatch_fp = self.get_addr_from_outld(dmaoutldpath, 'DmaPatcher_AddPatch')
+        self.dmapatcher_replacefile_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_ReplaceFile')
+        self.dmapatcher_addpatch_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_AddPatch')
+        tableldpath = self.get_rel_path('../loader/tables/tables.ld')
+        self.ram_map_vrom = 0x04000000
+        self.objecttable_addr = self.get_addr_from_linker(tableldpath, 'gObjectTable')
+        self.actortable_addr = self.get_addr_from_linker(tableldpath, 'gActorOverlayTable')
         
     def __del__(self):
         self.runfile.close()
@@ -47,8 +51,8 @@ class InjectionMain():
     def get_rel_path(self, p):
         return self.runfilepath[:self.runfilepath.rfind('/')] + '/' + p
 
-    def get_addr_from_outld(self, outldpath, func):
-        with open(outldpath) as ld:
+    def get_addr_from_linker(self, ldpath, func):
+        with open(ldpath) as ld:
             for ldl in ld:
                 ldtoks = [t for t in ldl.strip().split(' ') if t]
                 assert(len(ldtoks) == 3)
@@ -56,18 +60,17 @@ class InjectionMain():
                 assert(ldtoks[2][-1] == ';')
                 if ldtoks[0] == func:
                     return int(ldtoks[2][:-1], 16)
-        raise RuntimeError('Could not find function ' + func + ' in ' + outldpath)
-    
-    def get_and_inc_dataaddr(self, sz):
-        ret = self.dataaddr
-        self.dataaddr = ((self.dataaddr + sz + 15) >> 4) << 4
-        return ret
+        raise RuntimeError('Could not find symbol ' + func + ' in ' + ldpath)
     
     def get_next_file(self):
-        l = self.runfile.readline()
-        if not l:
-            return None
-        l = l.strip()
+        while True:
+            l = self.runfile.readline()
+            if not l:
+                return None
+            l = l.strip()
+            if l[0] == '#' or l[0:2] == '//':
+                continue
+            break
         toks = [t for t in l.split(' ') if t]
         if toks[0] == 'FIXED' or toks[0] == 'FIXED_AND_CALL_START':
             self.injector = FixedInjector(self, toks)
@@ -75,6 +78,10 @@ class InjectionMain():
             self.injector = ReplaceFileInjector(self, toks)
         elif toks[0] == 'PATCH':
             self.injector = PatchInjector(self, toks)
+        elif toks[0] == 'OBJECT':
+            self.injector = ObjectInjector(self, toks)
+        elif toks[0] == 'ACTOR':
+            self.injector = ActorInjector(self, toks)
         else:
             raise ValueError('Unknown run file type: ' + toks[0])
         return True
@@ -87,8 +94,9 @@ class InjectionMain():
 
 
 class Injector():
-    def __init__(self, parent):
+    def __init__(self, parent, ifilefirst):
         self.parent = parent
+        self.ifilefirst = ifilefirst
         self.ifile = None
         self.ifileaddr = None
         self.ifilepos = 0
@@ -100,7 +108,11 @@ class Injector():
         self.state = 0
     
     def get_next_command(self):
-        cmd_without_crc = self.next_cmd()
+        cmd_without_crc = None
+        if self.ifilefirst:
+            cmd_without_crc = self.next_cmd_file()
+        if cmd_without_crc is None:
+            cmd_without_crc = self.next_cmd()
         if cmd_without_crc is None:
             return None
         # cmd_without_crc =   b'\xBB\xAA\x99\x88\x77\x66\x55\x44\x33\x22\x11\x00' + \
@@ -126,27 +138,28 @@ class Injector():
         self.ifilepos += sendbytes
         return cmd_without_crc
         
-    def load_ifile(self, ifilepath):
+    def load_ifile(self, ifilepath, autoaddr):
         with open(ifilepath, 'rb') as i:
             self.ifile = i.read()
+        self.ifilelenalign = ((len(self.ifile) + 15) >> 4) << 4
         self.ifilepos = 0
+        if autoaddr:
+            self.ifileaddr = self.parent.dataaddr
+            self.parent.dataaddr += self.ifilelenalign
         
 class FixedInjector(Injector):
     def __init__(self, parent, toks):
-        super().__init__(parent)
+        super().__init__(parent, True)
         assert(len(toks) == 2)
         ifilepath = self.parent.get_rel_path(toks[1])
         basepath = ifilepath[:-4]
         basename = basepath[basepath.rfind('/')+1:]
-        self.load_ifile(ifilepath)
-        self.ifileaddr = self.parent.get_addr_from_outld(basepath + '.out.ld', basename + '_START')
+        self.load_ifile(ifilepath, False)
+        self.ifileaddr = self.parent.get_addr_from_linker(basepath + '.out.ld', basename + '_START')
         self.callstart = toks[0] == 'FIXED_AND_CALL_START'
         print('Injecting ' + ifilepath + ' to ' + hex(self.ifileaddr))
         
     def next_cmd(self):
-        fcmd = self.next_cmd_file()
-        if fcmd is not None:
-            return fcmd
         if self.state == 0 and self.callstart:
             self.state = 1
             return struct.pack('>5I65xB', self.ifileaddr, 0, 0, 0, 0, 7)
@@ -154,18 +167,14 @@ class FixedInjector(Injector):
 
 class ReplaceFileInjector(Injector):
     def __init__(self, parent, toks):
-        super().__init__(parent)
+        super().__init__(parent, True)
         assert(len(toks) == 3)
-        self.replacenum = int(toks[1])
-        self.load_ifile(self.parent.get_rel_path(toks[2]))
-        self.ifileaddr = self.parent.get_and_inc_dataaddr(len(self.ifile))
+        self.replacenum = int(toks[1], 0)
+        self.load_ifile(self.parent.get_rel_path(toks[2]), True)
         print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
             + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
             
     def next_cmd(self):
-        fcmd = self.next_cmd_file()
-        if fcmd is not None:
-            return fcmd
         if self.state == 0:
             self.state = 1
             return struct.pack('>5I65xB', self.parent.dmapatcher_replacefile_fp, 
@@ -174,25 +183,84 @@ class ReplaceFileInjector(Injector):
 
 class PatchInjector(Injector):
     def __init__(self, parent, toks):
-        super().__init__(parent)
+        super().__init__(parent, True)
         assert(len(toks) == 3)
         self.patchaddr = int(toks[1], 16)
         patchpath = self.parent.get_rel_path(toks[2])
         assert(patchpath.endswith('.pat'))
-        self.load_ifile(patchpath)
-        self.ifileaddr = self.parent.get_and_inc_dataaddr(len(self.ifile))
+        self.load_ifile(patchpath, True)
         print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
         
     def next_cmd(self):
-        fcmd = self.next_cmd_file()
-        if fcmd is not None:
-            return fcmd
         if self.state == 0:
             self.state = 1
             return struct.pack('>5I65xB', self.parent.dmapatcher_addpatch_fp, 
                 self.patchaddr, self.ifileaddr, 0, 0, 7)
         return None
 
+class ObjectInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(parent, True)
+        assert(len(toks) == 3)
+        self.objnum = int(toks[1], 0)
+        self.load_ifile(self.parent.get_rel_path(toks[2]), True)
+        print('Adding/replacing object ' + str(self.objnum) + ' with injection to ' 
+            + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
+            
+    def next_cmd(self):
+        if self.state == 0:
+            self.state = 1
+            vrom = self.parent.ram_map_vrom + (self.ifileaddr & 0x7FFFFFFF)
+            return struct.pack('>3I72xBB', 
+                self.parent.objecttable_addr + 0x10 + (0x08 * self.objnum),
+                vrom, vrom + self.ifilelenalign, 8, 2)
+        return None
+
+class ActorInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(parent, True)
+        assert(len(toks) == 3)
+        self.actornum = int(toks[1], 0)
+        self.load_ifile(self.parent.get_rel_path(toks[2]), True)
+        confpath = self.parent.get_rel_path(toks[2][:toks[2].rfind('/')] + '/conf.txt')
+        self.base_vram = None
+        self.allocation = None
+        with open(confpath, 'r') as conf:
+            for confl in conf:
+                conftoks = [t for t in confl.strip().split(' ') if t]
+                if len(conftoks) != 2: continue
+                if conftoks[0].lower() == 'vram':
+                    self.base_vram = int(conftoks[1], 16)
+                elif conftoks[0].lower() == 'allocation':
+                    self.allocation = int(conftoks[1], 16)
+        if self.base_vram is None or self.allocation is None:
+            raise RuntimeError('Could not find VRAM or allocation in actor\'s conf.txt')
+        ss = None
+        for i in range(len(self.ifile) - 12):
+            if self.ifile[i:i+2] == b'\xDE\xAD' and self.ifile[i+10:i+12] == b'\xBE\xEF':
+                if ss is not None:
+                    raise RuntimeError('More than one DEAD...BEEF in .zovl')
+                ss = i
+        if ss is None:
+            raise RuntimeError('Could not find DEAD...BEEF in .zovl')
+        self.ifile = (self.ifile[:ss] + struct.pack('>H', self.actornum)
+            + self.ifile[ss+2:ss+10] + b'\x00\x00' + self.ifile[ss+12:])
+        self.vars_vram = ss + self.base_vram
+        print('Adding/replacing actor ' + str(self.actornum) + ' with injection to ' 
+            + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
+        print('Base VRAM ' + hex(self.base_vram) + ' vars ' + hex(self.vars_vram) 
+            + ' allocation ' + hex(self.allocation))
+            
+    def next_cmd(self):
+        if self.state == 0:
+            self.state = 1
+            vrom = self.parent.ram_map_vrom + (self.ifileaddr & 0x7FFFFFFF)
+            print('VROM ' + hex(vrom))
+            return struct.pack('>8IHBB48xBB', 
+                self.parent.actortable_addr + (0x20 * self.actornum),
+                vrom, vrom + self.ifilelenalign, self.base_vram, self.base_vram + self.ifilelenalign,
+                0, self.vars_vram, 0, self.allocation, 0, 0, 32, 2)
+        return None
 
 ################################################################################
 
