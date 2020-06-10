@@ -29,6 +29,12 @@ class CRC():
             state = self.table[(state & 0xFF) ^ data[i]] ^ (state >> 8)
         return state
 
+def sibling(f, s):
+    return f[:(f.rfind('/')+1)] + s
+
+def roundup16(n):
+    return ((n + 15) >> 4) << 4
+
 class InjectionMain():
     def __init__(self, runfilepath):
         self.crc = CRC()
@@ -37,20 +43,21 @@ class InjectionMain():
         self.runfilepath = runfilepath
         self.runfile = open(runfilepath, 'r')
         print('Opened runfile ' + runfilepath)
-        dmaoutldpath = self.get_rel_path('../loader/dma_patcher/dma_patcher.out.ld')
+        dmaoutldpath = sibling(self.runfilepath, '../loader/dma_patcher/dma_patcher.out.ld')
         self.dmapatcher_replacefile_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_ReplaceFile')
         self.dmapatcher_addpatch_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_AddPatch')
-        tableldpath = self.get_rel_path('../loader/tables/tables.ld')
+        tableldpath = sibling(self.runfilepath, '../loader/tables/tables.ld')
         self.ram_map_vrom = 0x04000000
         self.objecttable_addr = self.get_addr_from_linker(tableldpath, 'gObjectTable')
         self.actortable_addr = self.get_addr_from_linker(tableldpath, 'gActorOverlayTable')
+        self.scenetable_addr = self.get_addr_from_linker(tableldpath, 'gSceneTable')
         
     def __del__(self):
         self.runfile.close()
-    
-    def get_rel_path(self, p):
-        return self.runfilepath[:self.runfilepath.rfind('/')] + '/' + p
 
+    def map_vrom(self, ram):
+        return self.ram_map_vrom + (ram & 0x7FFFFFFF)
+    
     def get_addr_from_linker(self, ldpath, func):
         with open(ldpath) as ld:
             for ldl in ld:
@@ -61,6 +68,20 @@ class InjectionMain():
                 if ldtoks[0] == func:
                     return int(ldtoks[2][:-1], 16)
         raise RuntimeError('Could not find symbol ' + func + ' in ' + ldpath)
+    
+    def read_conf(self, origfile, dic):
+        confpath = sibling(origfile, 'conf.txt')
+        with open(confpath, 'r') as conf:
+            for confl in conf:
+                conftoks = [t for t in confl.strip().split(' ') if t]
+                if len(conftoks) != 2: continue
+                k = conftoks[0].lower().replace('-', '_')
+                if k in dic:
+                    dic[k] = int(conftoks[1], 0)
+        if None in dic.values():
+            print('Could not find one or more values in actor/scene config file')
+            print(dic)
+            raise RuntimeError('read_conf failed')
     
     def get_next_file(self):
         while True:
@@ -78,10 +99,14 @@ class InjectionMain():
             self.injector = ReplaceFileInjector(self, toks)
         elif toks[0] == 'PATCH':
             self.injector = PatchInjector(self, toks)
+        elif toks[0] == 'WRITE':
+            self.injector = WriteInjector(self, toks)
         elif toks[0] == 'OBJECT':
             self.injector = ObjectInjector(self, toks)
         elif toks[0] == 'ACTOR':
             self.injector = ActorInjector(self, toks)
+        elif toks[0] == 'SCENE':
+            self.injector = SceneInjector(self, toks)
         else:
             raise ValueError('Unknown run file type: ' + toks[0])
         return True
@@ -141,7 +166,7 @@ class Injector():
     def load_ifile(self, ifilepath, autoaddr):
         with open(ifilepath, 'rb') as i:
             self.ifile = i.read()
-        self.ifilelenalign = ((len(self.ifile) + 15) >> 4) << 4
+        self.ifilelenalign = roundup16(len(self.ifile))
         self.ifilepos = 0
         if autoaddr:
             self.ifileaddr = self.parent.dataaddr
@@ -151,7 +176,7 @@ class FixedInjector(Injector):
     def __init__(self, parent, toks):
         super().__init__(parent, True)
         assert(len(toks) == 2)
-        ifilepath = self.parent.get_rel_path(toks[1])
+        ifilepath = sibling(self.parent.runfilepath, toks[1])
         basepath = ifilepath[:-4]
         basename = basepath[basepath.rfind('/')+1:]
         self.load_ifile(ifilepath, False)
@@ -170,7 +195,7 @@ class ReplaceFileInjector(Injector):
         super().__init__(parent, True)
         assert(len(toks) == 3)
         self.replacenum = int(toks[1], 0)
-        self.load_ifile(self.parent.get_rel_path(toks[2]), True)
+        self.load_ifile(sibling(self.parent.runfilepath, toks[2]), True)
         print('Replacing ROM file ' + str(self.replacenum) + ' with injection to ' 
             + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
             
@@ -186,7 +211,7 @@ class PatchInjector(Injector):
         super().__init__(parent, True)
         assert(len(toks) == 3)
         self.patchaddr = int(toks[1], 16)
-        patchpath = self.parent.get_rel_path(toks[2])
+        patchpath = sibling(self.parent.runfilepath, toks[2])
         assert(patchpath.endswith('.pat'))
         self.load_ifile(patchpath, True)
         print('Patching ROM @vrom ' + hex(self.patchaddr) + ' patch len ' + str(len(self.ifile)))
@@ -197,22 +222,39 @@ class PatchInjector(Injector):
             return struct.pack('>5I65xB', self.parent.dmapatcher_addpatch_fp, 
                 self.patchaddr, self.ifileaddr, 0, 0, 7)
         return None
+        
+class WriteInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(parent, True)
+        assert(len(toks) >= 4)
+        numBytes = int(toks[1], 0)
+        self.ifileaddr = int(toks[2], 16)
+        assert(len(toks) == 3 + numBytes)
+        self.ifile = b''
+        for i in range(numBytes):
+            self.ifile += bytes([int(toks[3+i], 16)])
+        assert(len(self.ifile) == numBytes)
+        self.ifilepos = 0
+        print('Setting ' + str(numBytes) + ' bytes at ' + hex(self.ifileaddr))
+        
+    def next_cmd(self):
+        return None
 
 class ObjectInjector(Injector):
     def __init__(self, parent, toks):
         super().__init__(parent, True)
         assert(len(toks) == 3)
         self.objnum = int(toks[1], 0)
-        self.load_ifile(self.parent.get_rel_path(toks[2]), True)
+        self.load_ifile(sibling(self.parent.runfilepath, toks[2]), True)
         print('Adding/replacing object ' + str(self.objnum) + ' with injection to ' 
             + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
             
     def next_cmd(self):
         if self.state == 0:
             self.state = 1
-            vrom = self.parent.ram_map_vrom + (self.ifileaddr & 0x7FFFFFFF)
+            vrom = self.parent.map_vrom(self.ifileaddr)
             return struct.pack('>3I72xBB', 
-                self.parent.objecttable_addr + 0x10 + (0x08 * self.objnum),
+                self.parent.objecttable_addr + 0x08 + (0x08 * self.objnum),
                 vrom, vrom + self.ifilelenalign, 8, 2)
         return None
 
@@ -221,20 +263,10 @@ class ActorInjector(Injector):
         super().__init__(parent, True)
         assert(len(toks) == 3)
         self.actornum = int(toks[1], 0)
-        self.load_ifile(self.parent.get_rel_path(toks[2]), True)
-        confpath = self.parent.get_rel_path(toks[2][:toks[2].rfind('/')] + '/conf.txt')
-        self.base_vram = None
-        self.allocation = None
-        with open(confpath, 'r') as conf:
-            for confl in conf:
-                conftoks = [t for t in confl.strip().split(' ') if t]
-                if len(conftoks) != 2: continue
-                if conftoks[0].lower() == 'vram':
-                    self.base_vram = int(conftoks[1], 16)
-                elif conftoks[0].lower() == 'allocation':
-                    self.allocation = int(conftoks[1], 16)
-        if self.base_vram is None or self.allocation is None:
-            raise RuntimeError('Could not find VRAM or allocation in actor\'s conf.txt')
+        actorpath = sibling(self.parent.runfilepath, toks[2])
+        self.load_ifile(actorpath, True)
+        self.conf = {'vram': None, 'allocation': None}
+        self.parent.read_conf(actorpath, self.conf)
         ss = None
         for i in range(len(self.ifile) - 12):
             if self.ifile[i:i+2] == b'\xDE\xAD' and self.ifile[i+10:i+12] == b'\xBE\xEF':
@@ -245,22 +277,108 @@ class ActorInjector(Injector):
             raise RuntimeError('Could not find DEAD...BEEF in .zovl')
         self.ifile = (self.ifile[:ss] + struct.pack('>H', self.actornum)
             + self.ifile[ss+2:ss+10] + b'\x00\x00' + self.ifile[ss+12:])
-        self.vars_vram = ss + self.base_vram
+        self.vars_vram = ss + self.conf['vram']
         print('Adding/replacing actor ' + str(self.actornum) + ' with injection to ' 
             + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
-        print('Base VRAM ' + hex(self.base_vram) + ' vars ' + hex(self.vars_vram) 
-            + ' allocation ' + hex(self.allocation))
+        print('Base VRAM ' + hex(self.conf['vram']) + ' vars ' + hex(self.vars_vram) 
+            + ' allocation ' + hex(self.conf['allocation']))
             
     def next_cmd(self):
         if self.state == 0:
             self.state = 1
-            vrom = self.parent.ram_map_vrom + (self.ifileaddr & 0x7FFFFFFF)
+            vrom = self.parent.map_vrom(self.ifileaddr)
             print('VROM ' + hex(vrom))
             return struct.pack('>8IHBB48xBB', 
                 self.parent.actortable_addr + (0x20 * self.actornum),
-                vrom, vrom + self.ifilelenalign, self.base_vram, self.base_vram + self.ifilelenalign,
-                0, self.vars_vram, 0, self.allocation, 0, 0, 32, 2)
+                vrom, vrom + self.ifilelenalign, 
+                self.conf['vram'], self.conf['vram'] + self.ifilelenalign,
+                0, self.vars_vram, 0, self.conf['allocation'], 0, 0, 32, 2)
         return None
+        
+class SceneInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(parent, True)
+        assert(len(toks) == 3)
+        self.scenenum = int(toks[1], 0)
+        scenepath = sibling(self.parent.runfilepath, toks[2])
+        self.load_ifile(scenepath, True)
+        def round_up_data(d):
+            l = len(d)
+            l16 = roundup16(l)
+            return d + bytes([0] * (l16 - l)) if l16 > l else d
+        self.ifile = round_up_data(self.ifile)
+        self.scenelen = len(self.ifile)
+        self.conf = {'unk_a': None, 'unk_b': None, 'shader': None, 'save': 0, 'restrict': 0}
+        self.parent.read_conf(scenepath, self.conf)
+        self.roomsaddrs = b''
+        nrooms = 0
+        while True:
+            try:
+                with open(sibling(scenepath, 'room_' + str(nrooms) + '.zmap'), 'rb') as map:
+                    d = round_up_data(map.read())
+                    self.ifile += d
+                    addr = self.parent.dataaddr
+                    self.parent.dataaddr += len(d)
+                    vrom = self.parent.map_vrom(addr)
+                    self.roomsaddrs += struct.pack('>II', vrom, vrom + len(d))
+                    nrooms += 1
+            except FileNotFoundError:
+                break
+        assert(1 <= nrooms <= 127)
+        # Based on oot_build.rtl by z64.me
+        def find_list_addr(start, cmd, nentries):
+            a = start
+            while True:
+                c = self.ifile[a]
+                if c == cmd:
+                    break
+                if c == 0x14 or c >= 0x20:
+                    print('Did not find command ' + hex(cmd) + ' in list')
+                    return None
+                a += 8
+            if self.ifile[a+1] != nentries or self.ifile[a+2] != 0 or self.ifile[a+3] != 0:
+                print('Invalid command')
+                return None
+            (addr,) = struct.unpack('>I', self.ifile[a+4:a+8])
+            if addr >> 24 != 0x02 or (addr & 3) != 0 or (addr & 0xFFFFFF) > self.scenelen:
+                print('Invalid address ' + hex(addr))
+                return None
+            return addr & 0xFFFFFF
+        def scene_header_rooms(headeraddr):
+            if headeraddr == 0:
+                return True
+            rseg = headeraddr >> 24
+            ofs = headeraddr & 0xFFFFFF
+            if rseg != 0x02 or (ofs & 3) != 0 or ofs + 8 > self.scenelen:
+                print('Invalid scene header')
+                return False #raise RuntimeError('Invalid scene header requested!')
+            roomlist = find_list_addr(ofs, 0x04, nrooms)
+            if roomlist is None:
+                print('Could not find room list')
+                return False
+            print('Replacing room list at ' + hex(roomlist) + ' for header ' + hex(headeraddr))
+            self.ifile = self.ifile[:roomlist] + self.roomsaddrs + self.ifile[roomlist+len(self.roomsaddrs):]
+            return True
+        if not scene_header_rooms(0x02000000):
+            print(self.ifile[:80])
+            raise RuntimeError('Invalid first scene header!')
+        # Find alternate header command
+        altheader = find_list_addr(0, 0x18, 0)
+        if altheader is not None:
+            while scene_header_rooms(altheader):
+                altheader += 4
+        print('Injecting scene ' + hex(self.ifileaddr) + ' ' + str(nrooms) + ' rooms')
+    
+    def next_cmd(self):
+        if self.state == 0:
+            self.state = 1
+            vrom = self.parent.map_vrom(self.ifileaddr)
+            return struct.pack('>5I4B60xBB', 
+                self.parent.scenetable_addr + (0x14 * self.scenenum),
+                vrom, vrom + self.scenelen, 0, 0, 
+                self.conf['unk_a'], self.conf['shader'], self.conf['unk_b'], 0, 0x14, 2)
+        return None
+            
 
 ################################################################################
 
