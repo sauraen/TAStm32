@@ -583,7 +583,7 @@ def main():
         psutil.Process().nice(20) #it's -20, you bozos, and you can't do this without sudo
     gc.disable()
     
-    assert(sys.argv[1].endswith('.txt'))
+    assert(sys.argv[1].endswith('.run'))
     dev = Z64TC(serial_helper.select_serial_port(), sys.argv[1])
     
     dev.reset()
