@@ -39,7 +39,7 @@ class InjectionMain():
     def __init__(self, runfilepath):
         self.crc = CRC()
         self.dataaddr = 0x80410000
-        assert(runfilepath.endswith('.txt'))
+        assert(runfilepath.endswith('.run'))
         self.runfilepath = runfilepath
         self.runfile = open(runfilepath, 'r')
         print('Opened runfile ' + runfilepath)
@@ -89,6 +89,8 @@ class InjectionMain():
             if not l:
                 return None
             l = l.strip()
+            if len(l) == 0:
+                continue
             if l[0] == '#' or l[0:2] == '//':
                 continue
             break
