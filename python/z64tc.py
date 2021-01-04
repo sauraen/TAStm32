@@ -130,7 +130,7 @@ class Injector():
         self.state = 0
         
     def reset(self):
-        print('Resetting injection of ' + hex(self.ifileaddr))
+        # print('--Injecting to ' + hex(self.ifileaddr))
         self.ifilepos = 0
         self.state = 0
     
@@ -406,31 +406,34 @@ class Z64TC():
     
     def write(self, data):
         count = self.ser.write(data)
-        if DEBUG and data != b'':
-            print('S:', data)
+        # if DEBUG and data != b'':
+        #     print('S:', data)
         return count
 
     def read(self, count):
         data = self.ser.read(count)
-        if DEBUG and data != b'':
-            print('R:', data)
+        # if DEBUG and data != b'':
+        #     print('R:', data)
         return data
 
     def reset(self):
-        c = self.read(1)
-        if c == '':
-            pass
-        else:
-            numBytes = self.ser.inWaiting()
-            if numBytes > 0:
-                c += self.read(numBytes)
-        self.write(b'R')
-        time.sleep(0.1)
-        data = self.read(2)
-        if data == b'\x01R':
-            print('Reset acknowledged')
-        else:
-            raise RuntimeError('Error during reset')
+        for i in range(10):
+            c = self.read(1)
+            if c == '':
+                pass
+            else:
+                numBytes = self.ser.inWaiting()
+                if numBytes > 0:
+                    c += self.read(numBytes)
+            self.write(b'R')
+            time.sleep(0.1)
+            data = self.read(2)
+            if data == b'\x01R':
+                print('Reset acknowledged')
+                return True
+            print('Retrying TAStm32 reset...')
+            time.sleep(0.05)
+        raise RuntimeError('Error during reset')
 
     def setup_run(self):
         self.write(b'SAZ\x70\x00')
@@ -454,39 +457,39 @@ class Z64TC():
         unk_cmd_args = ['player', 'sercmd', 'bytes']
         mempak_cmd_args = ['player', 'addr hi', 'addr lo', 'd[0]']
         responses = [
-            {'c': 0x80, 'l': 0, 's': 'Acknowledge TC buffer command', 'a': []},
-            {'c': 0x81, 'l': 0, 's': 'Acknowledge TC buffered reset', 'a': []},
-            {'c': 0xB0, 'l': 0, 's': 'Buffer Overflow', 'a': []},
-            {'c': 0xB2, 'l': 0, 's': 'Buffer Underflow', 'a': []},
-            {'c': 0xB3, 'l': 0, 's': 'Buffer Empty (normal at end of run)', 'a': []},
-            {'c': 0xC0, 'l': 4, 's': 'Ser Cmd Receive Error', 'a': ['player', 'sercmd', 'd0', 'd1']},
-            {'c': 0xC1, 'l': 3, 's': 'Ser Cmd Bad Length', 'a': unk_cmd_args},
-            {'c': 0xC2, 'l': 3, 's': 'Unsupported Ser Cmd', 'a': unk_cmd_args},
-            {'c': 0xC3, 'l': 2, 's': 'Players out of order', 'a': ['player', 'expected player']},
-            {'c': 0xC4, 'l': 1, 's': 'Identity', 'a': ['player']},
-            {'c': 0xC5, 'l': 1, 's': 'Controller reset', 'a': ['player']},
-            {'c': 0xC6, 'l': 3, 's': 'Mempak read', 'a': mempak_cmd_args[:-1]},
-            {'c': 0xC7, 'l': 4, 's': 'Mempak write', 'a': mempak_cmd_args},
-            {'c': 0xC8, 'l': 1, 's': 'Normal poll', 'a': ['player']},
-            {'c': 0xC9, 'l': 1, 's': 'Poll starting new command', 'a': ['d0']},
-            {'c': 0xCA, 'l': 1, 's': 'Poll finished command', 'a': ['d95']},
-            {'c': 0xCB, 'l': 0, 's': 'Poll wrong player', 'a': []},
-            {'c': 0xCC, 'l': 0, 's': 'Poll no commands available', 'a': []},
-            {'c': 0x90, 'l': 0, 's': 'Rumble received: 000 (Error)', 'a': []},
-            {'c': 0x91, 'l': 0, 's': 'Rumble received: 001 (CRC Fail)', 'a': []},
-            {'c': 0x92, 'l': 0, 's': 'Rumble received: 010 (Q False)', 'a': []},
-            {'c': 0x93, 'l': 0, 's': 'Rumble received: 011 (Q True)', 'a': []},
-            {'c': 0x94, 'l': 0, 's': 'Rumble received: 100 (Cmd Invalid)', 'a': []},
-            {'c': 0x95, 'l': 0, 's': 'Rumble received: 101 (Nop OK)', 'a': []},
-            {'c': 0x96, 'l': 0, 's': 'Rumble received: 110 (Cmd OK)', 'a': []},
-            {'c': 0x97, 'l': 0, 's': 'Rumble received: 111 (Error)', 'a': []},
-            {'c': 0x98, 'l': 0, 's': 'New TC command when last not finished', 'a': []},
-            {'c': 0x99, 'l': 0, 's': 'TC command buffer overflow', 'a': []},
-            {'c': 0x9A, 'l': 0, 's': 'Mempak read cmd wrong len', 'a': []},
-            {'c': 0x9B, 'l': 0, 's': 'Mempak write cmd wrong len', 'a': []},
-            {'c': 0x9C, 'l': 0, 's': 'Mempak cmd bad addr CRC', 'a': []},
-            {'c': 0x9D, 'l': 0, 's': 'Received rumble not 0/1', 'a': []},
-            {'c': 0xFF, 'l': 0, 's': 'Unknown serial command', 'a': []},
+            {'p':  True, 'c': 0x80, 'l': 0, 's': 'Acknowledge TC buffer command', 'a': []},
+            {'p': False, 'c': 0x81, 'l': 0, 's': 'Acknowledge TC buffered reset', 'a': []},
+            {'p':  True, 'c': 0xB0, 'l': 0, 's': 'Buffer Overflow', 'a': []},
+            {'p':  True, 'c': 0xB2, 'l': 0, 's': 'Buffer Underflow', 'a': []},
+            {'p':  True, 'c': 0xB3, 'l': 0, 's': 'Buffer Empty (normal at end of run)', 'a': []},
+            {'p':  True, 'c': 0xC0, 'l': 4, 's': 'Ser Cmd Receive Error', 'a': ['player', 'sercmd', 'd0', 'd1']},
+            {'p':  True, 'c': 0xC1, 'l': 3, 's': 'Ser Cmd Bad Length', 'a': unk_cmd_args},
+            {'p':  True, 'c': 0xC2, 'l': 3, 's': 'Unsupported Ser Cmd', 'a': unk_cmd_args},
+            {'p':  True, 'c': 0xC3, 'l': 2, 's': 'Players out of order', 'a': ['player', 'expected player']},
+            {'p':  True, 'c': 0xC4, 'l': 1, 's': 'Identity', 'a': ['player']},
+            {'p':  True, 'c': 0xC5, 'l': 1, 's': 'Controller reset', 'a': ['player']},
+            {'p':  True, 'c': 0xC6, 'l': 3, 's': 'Mempak read', 'a': mempak_cmd_args[:-1]},
+            {'p':  True, 'c': 0xC7, 'l': 4, 's': 'Mempak write', 'a': mempak_cmd_args},
+            {'p':  True, 'c': 0xC8, 'l': 1, 's': 'Normal poll', 'a': ['player']},
+            {'p': False, 'c': 0xC9, 'l': 1, 's': 'Poll starting new command', 'a': ['d0']},
+            {'p': False, 'c': 0xCA, 'l': 1, 's': 'Poll finished command', 'a': ['d95']},
+            {'p':  True, 'c': 0xCB, 'l': 0, 's': 'Poll wrong player', 'a': []},
+            {'p': False, 'c': 0xCC, 'l': 0, 's': 'Poll no commands available', 'a': []},
+            {'p':  True, 'c': 0x90, 'l': 0, 's': 'Rumble received: 000 (Error)', 'a': []},
+            {'p':  True, 'c': 0x91, 'l': 0, 's': 'Rumble received: 001 (CRC Fail)', 'a': []},
+            {'p':  True, 'c': 0x92, 'l': 0, 's': 'Rumble received: 010 (Q False)', 'a': []},
+            {'p':  True, 'c': 0x93, 'l': 0, 's': 'Rumble received: 011 (Q True)', 'a': []},
+            {'p':  True, 'c': 0x94, 'l': 0, 's': 'Rumble received: 100 (Cmd Invalid)', 'a': []},
+            {'p': False, 'c': 0x95, 'l': 0, 's': 'Rumble received: 101 (Nop OK)', 'a': []},
+            {'p': False, 'c': 0x96, 'l': 0, 's': 'Rumble received: 110 (Cmd OK)', 'a': []},
+            {'p':  True, 'c': 0x97, 'l': 0, 's': 'Rumble received: 111 (Error)', 'a': []},
+            {'p':  True, 'c': 0x98, 'l': 0, 's': 'New TC command when last not finished', 'a': []},
+            {'p':  True, 'c': 0x99, 'l': 0, 's': 'TC command buffer overflow', 'a': []},
+            {'p':  True, 'c': 0x9A, 'l': 0, 's': 'Mempak read cmd wrong len', 'a': []},
+            {'p':  True, 'c': 0x9B, 'l': 0, 's': 'Mempak write cmd wrong len', 'a': []},
+            {'p':  True, 'c': 0x9C, 'l': 0, 's': 'Mempak cmd bad addr CRC', 'a': []},
+            {'p':  True, 'c': 0x9D, 'l': 0, 's': 'Received rumble not 0/1', 'a': []},
+            {'p':  True, 'c': 0xFF, 'l': 0, 's': 'Unknown serial command', 'a': []},
         ]
         i = 0
         while i < len(c):
@@ -501,7 +504,8 @@ class Z64TC():
                 continue
             if cmd >= 0x90 and cmd <= 0x97:
                 rumble_replies.append(cmd)
-            print(resp['s'], *[resp['a'][j] + '=' + hex(c[i+j]) + ',' for j in range(resp['l'])])
+            if resp['p'] or DEBUG:
+                print(resp['s'], *[resp['a'][j] + '=' + hex(c[i+j]) + ',' for j in range(resp['l'])])
             i += resp['l']
         return rumble_replies
     
@@ -529,7 +533,7 @@ class Z64TC():
         try:
             while True:
                 if not self.inj.get_next_file():
-                    print('End of injection')
+                    print('Done with whole runfile')
                     return
                 def reset_file():
                     nonlocal in_flight, nothing_happened, ready, cmd
@@ -552,12 +556,15 @@ class Z64TC():
                         if rr == 0x95:
                             # Nop
                             if not ready:
-                                print('Received nop, starting injection')
+                                # print('----Received nop, starting injection')
+                                pass
                             ready = True
                         elif rr in (0x92, 0x93, 0x94, 0x96):
                             # Q False, Q True, Bad cmd, OK
                             in_flight -= 1
                             nothing_happened = 0
+                            filled = int(in_flight * 100.0 / int_buffer)
+                            print('\rBuf ' + str(filled) + '%: ' + ('=' * (filled//2)) + '>  ', end='')
                         else:
                             # CRC fail or rumble comm fail
                             if ready:
@@ -570,6 +577,7 @@ class Z64TC():
                         print('Nothing happened for too long, restarting file!')
                         reset_file()
                     if cmd is None and in_flight == 0:
+                        print('\r', end='')
                         break
         except serial.SerialException:
             print('ERROR: Serial Exception caught!')
@@ -577,12 +585,12 @@ class Z64TC():
             print('^C Exiting')
 
 def main():
-    global DEBUG
+    #global DEBUG
 
-    if(os.name == 'nt'):
-        psutil.Process().nice(psutil.REALTIME_PRIORITY_CLASS)
-    else:
-        psutil.Process().nice(20) #it's -20, you bozos, and you can't do this without sudo
+    # if(os.name == 'nt'):
+    #     psutil.Process().nice(psutil.REALTIME_PRIORITY_CLASS)
+    # else:
+    #     psutil.Process().nice(20) #it's -20, you bozos, and you can't do this without sudo
     gc.disable()
     
     assert(sys.argv[1].endswith('.run'))

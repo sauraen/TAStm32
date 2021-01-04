@@ -79,20 +79,23 @@ class TAStm32():
         return data
 
     def reset(self):
-        c = self.read(1)
-        if c == '':
-            pass
-        else:
-            numBytes = self.ser.inWaiting()
-            if numBytes > 0:
-                c += self.read(numBytes)
-        self.write(b'R')
-        time.sleep(0.1)
-        data = self.read(2)
-        if data == b'\x01R':
-            return True
-        else:
-            raise RuntimeError('Error during reset')
+        for i in range(10):
+            c = self.read(1)
+            if c == '':
+                pass
+            else:
+                numBytes = self.ser.inWaiting()
+                if numBytes > 0:
+                    c += self.read(numBytes)
+            self.write(b'R')
+            time.sleep(0.1)
+            data = self.read(2)
+            if data == b'\x01R':
+                print('Reset acknowledged')
+                return True
+            print('Retrying TAStm32 reset...')
+            time.sleep(0.05)
+        raise RuntimeError('Error during reset')
 
     def power_on(self):
         self.write(b'P1')
@@ -205,8 +208,6 @@ class TAStm32():
         global buffer
         global run_id
         global fn
-        frame = 0
-        frame_max = len(buffer)
         while True:
             try:
                 c = self.read(1)
@@ -229,8 +230,14 @@ class TAStm32():
                     while i < len(c):
                         if c[i] == 0xB2:
                             print('Buffer Underflow')
+                            if fn >= len(buffer):
+                                print('Done with run before (somehow missed Buffer Empty message)')
+                                return
                         elif c[i] == 0xB3:
                             print('Buffer Empty (normal at end of run)')
+                            if fn >= len(buffer):
+                                print('Run finished normally')
+                                return
                         elif c[i] == 0xC0:
                             print('Command receive error ctrlr {}: {:02X} {:02X} {:02X} {:02X}'.format(c[i+1]+1, c[i+2], c[i+3], c[i+4], c[i+5]))
                             i += 5
@@ -242,6 +249,8 @@ class TAStm32():
                             i += 1
                         elif c[i] == 0xC3:
                             print('Controllers polled out of order: expected {}, got {}'.format(c[i+2]+1, c[i+1]+1))
+                            print('\a====Your controllers are hooked up in the wrong order or the switch on the Controller 1 cable is set to manual====')
+                            return
                             i += 2
                         elif c[i] == 0xC4:
                             print('Controller {} identity command (normal at powerup)'.format(c[i+1]+1))
@@ -277,7 +286,6 @@ class TAStm32():
                     except IndexError:
                         pass
                     fn += 1
-                    frame += 1
                 for cmd in range(bulk):
                     for packet in range(packets):
                         command = []
@@ -285,7 +293,6 @@ class TAStm32():
                             try:
                                 command.append(run_id + buffer[fn])
                                 fn += 1
-                                frame += 1
                                 if fn % 100 == 0:
                                     print('Sending Latch: {}'.format(fn))
                             except IndexError:
@@ -293,8 +300,7 @@ class TAStm32():
                         data = b''.join(command)
                         self.write(data)
                     self.write(run_id.lower())
-                if frame >= frame_max:
-                    break
+                
             except serial.SerialException:
                 print('ERROR: Serial Exception caught!')
                 break
@@ -308,11 +314,10 @@ def main():
     global run_id
     global fn
 
-    if(os.name == 'nt'):
-        psutil.Process().nice(psutil.REALTIME_PRIORITY_CLASS)
-    else:
-        psutil.Process().nice(20)
-
+    # if(os.name == 'nt'):
+    #     psutil.Process().nice(psutil.REALTIME_PRIORITY_CLASS)
+    # else:
+    #     psutil.Process().nice(20) #it's -20, you bozos, and you can't do this without sudo
     gc.disable()
 
     parser = argparse_helper.setup_parser_full()
@@ -417,6 +422,7 @@ def main():
     dev.power_on()
     dev.main_loop()
     print('Exiting')
+    dev.reset()
     dev.ser.close()
     sys.exit(0)
 
