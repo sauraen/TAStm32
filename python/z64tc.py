@@ -38,7 +38,7 @@ def roundup16(n):
 class InjectionMain():
     def __init__(self, runfilepath):
         self.crc = CRC()
-        self.dataaddr = 0x80410000
+        self.dataaddr = 0x80420000
         assert(runfilepath.endswith('.run'))
         self.runfilepath = runfilepath
         self.runfile = open(runfilepath, 'r')
@@ -46,7 +46,7 @@ class InjectionMain():
         dmaoutldpath = sibling(self.runfilepath, '../loader/dma_patcher/dma_patcher.out.ld')
         self.dmapatcher_replacefile_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_ReplaceFile')
         self.dmapatcher_addpatch_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_AddPatch')
-        tableldpath = sibling(self.runfilepath, '../loader/tables/tables.ld')
+        tableldpath = sibling(self.runfilepath, '../statics/tables.ld')
         self.ram_map_vrom = 0x04000000
         self.objecttable_addr = self.get_addr_from_linker(tableldpath, 'gObjectTable')
         self.actortable_addr = self.get_addr_from_linker(tableldpath, 'gActorOverlayTable')
@@ -303,6 +303,8 @@ class SceneInjector(Injector):
         assert(len(toks) == 3)
         self.scenenum = int(toks[1], 0)
         scenepath = sibling(self.parent.runfilepath, toks[2])
+        assert scenepath.endswith('_scene.zscene')
+        scenebasename = scenepath[scenepath.rfind('/')+1:-13]
         self.load_ifile(scenepath, True)
         def round_up_data(d):
             l = len(d)
@@ -316,7 +318,7 @@ class SceneInjector(Injector):
         nrooms = 0
         while True:
             try:
-                with open(sibling(scenepath, 'room_' + str(nrooms) + '.zmap'), 'rb') as map:
+                with open(sibling(scenepath, scenebasename + '_room_' + str(nrooms) + '.zmap'), 'rb') as map:
                     d = round_up_data(map.read())
                     self.ifile += d
                     addr = self.parent.dataaddr
