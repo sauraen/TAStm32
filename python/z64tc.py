@@ -267,16 +267,19 @@ class ActorInjector(Injector):
         self.actornum = int(toks[1], 0)
         actorpath = sibling(self.parent.runfilepath, toks[2])
         self.load_ifile(actorpath, True)
-        self.conf = {'vram': None, 'allocation': None}
+        self.conf = {'vram': None, 'allocation': None, 'ivar': 0}
         self.parent.read_conf(actorpath, self.conf)
         ss = None
-        for i in range(len(self.ifile) - 12):
-            if self.ifile[i:i+2] == b'\xDE\xAD' and self.ifile[i+10:i+12] == b'\xBE\xEF':
-                if ss is not None:
-                    raise RuntimeError('More than one DEAD...BEEF in .zovl')
-                ss = i
-        if ss is None:
-            raise RuntimeError('Could not find DEAD...BEEF in .zovl')
+        if self.conf['ivar'] > 0:
+            ss = self.conf['ivar'] - self.conf['vram']
+        else:
+            for i in range(len(self.ifile) - 12):
+                if self.ifile[i:i+2] == b'\xDE\xAD' and self.ifile[i+10:i+12] == b'\xBE\xEF':
+                    if ss is not None:
+                        raise RuntimeError('More than one DEAD...BEEF in .zovl')
+                    ss = i
+            if ss is None:
+                raise RuntimeError('Could not find DEAD...BEEF in .zovl')
         self.ifile = (self.ifile[:ss] + struct.pack('>H', self.actornum)
             + self.ifile[ss+2:ss+10] + b'\x00\x00' + self.ifile[ss+12:])
         self.vars_vram = ss + self.conf['vram']
