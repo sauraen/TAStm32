@@ -46,7 +46,7 @@ class InjectionMain():
         dmaoutldpath = sibling(self.runfilepath, '../loader/dma_patcher/dma_patcher.out.ld')
         self.dmapatcher_replacefile_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_ReplaceFile')
         self.dmapatcher_addpatch_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_AddPatch')
-        tableldpath = sibling(self.runfilepath, '../statics/tables.ld')
+        tableldpath = sibling(self.runfilepath, '../include/ootmain.ld')
         self.ram_map_vrom = 0x04000000
         self.objecttable_addr = self.get_addr_from_linker(tableldpath, 'gObjectTable')
         self.actortable_addr = self.get_addr_from_linker(tableldpath, 'gActorOverlayTable')
@@ -61,7 +61,9 @@ class InjectionMain():
     def get_addr_from_linker(self, ldpath, func):
         with open(ldpath) as ld:
             for ldl in ld:
-                ldtoks = [t for t in ldl.strip().split(' ') if t]
+                ldl = ldl.strip()
+                if len(ldl) == 0: continue
+                ldtoks = [t for t in ldl.split(' ') if t]
                 assert(len(ldtoks) == 3)
                 assert(ldtoks[1] == '=')
                 assert(ldtoks[2][-1] == ';')
