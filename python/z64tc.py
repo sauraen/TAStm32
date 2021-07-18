@@ -46,7 +46,9 @@ class InjectionMain():
         dmaoutldpath = sibling(self.runfilepath, '../loader/dma_patcher/dma_patcher.out.ld')
         self.dmapatcher_replacefile_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_ReplaceFile')
         self.dmapatcher_addpatch_fp = self.get_addr_from_linker(dmaoutldpath, 'DmaPatcher_AddPatch')
-        tableldpath = sibling(self.runfilepath, '../include/ootmain.ld')
+        staticsldpath = sibling(self.runfilepath, '../statics/statics.out.ld')
+        self.statics_registerstaticdata = self.get_addr_from_linker(staticsldpath, 'Statics_RegisterStaticData')
+        tableldpath = sibling(self.runfilepath, '../include/inject_addrs.ld')
         self.ram_map_vrom = 0x04000000
         self.objecttable_addr = self.get_addr_from_linker(tableldpath, 'gObjectTable')
         self.actortable_addr = self.get_addr_from_linker(tableldpath, 'gActorOverlayTable')
@@ -63,10 +65,9 @@ class InjectionMain():
             for ldl in ld:
                 ldl = ldl.strip()
                 if len(ldl) == 0: continue
-                ldtoks = [t for t in ldl.split(' ') if t]
-                assert(len(ldtoks) == 3)
-                assert(ldtoks[1] == '=')
-                assert(ldtoks[2][-1] == ';')
+                ldtoks = [t for t in ldl.replace('=', ' = ').split(' ') if t]
+                if len(ldtoks) != 3 or ldtoks[1] != '=' or ldtoks[2][-1] != ';':
+                    raise RuntimeError('Invalid linker line: ' + ldl)
                 if ldtoks[0] == func:
                     return int(ldtoks[2][:-1], 16)
         raise RuntimeError('Could not find symbol ' + func + ' in ' + ldpath)
@@ -105,6 +106,8 @@ class InjectionMain():
             self.injector = PatchInjector(self, toks)
         elif toks[0] == 'WRITE':
             self.injector = WriteInjector(self, toks)
+        elif toks[0] == 'STATICDATA':
+            self.injector = StaticDataInjector(self, toks)
         elif toks[0] == 'OBJECT':
             self.injector = ObjectInjector(self, toks)
         elif toks[0] == 'ACTOR':
@@ -244,6 +247,26 @@ class WriteInjector(Injector):
     def next_cmd(self):
         return None
 
+class StaticDataInjector(Injector):
+    def __init__(self, parent, toks):
+        super().__init__(parent, True)
+        assert(len(toks) == 5)
+        self.load_ifile(sibling(self.parent.runfilepath, toks[1]), True)
+        self.sdtype = int(toks[2], 0)
+        assert 0 <= self.sdtype <= 3
+        self.sddata1 = int(toks[3], 0)
+        self.sddata2 = int(toks[4], 0)
+        print('Static data type ' + str(self.sdtype) + ' injected to ' 
+            + hex(self.ifileaddr) + ' len ' + str(len(self.ifile)))
+            
+    def next_cmd(self):
+        if self.state == 0:
+            self.state = 1
+            return struct.pack('>5I65xB', self.parent.statics_registerstaticdata,
+                self.ifileaddr, (self.sdtype << 24) | self.ifilelenalign,
+                self.sddata1, self.sddata2, 7)
+        return None
+        
 class ObjectInjector(Injector):
     def __init__(self, parent, toks):
         super().__init__(parent, True)
@@ -325,12 +348,12 @@ class SceneInjector(Injector):
             try:
                 with open(sibling(scenepath, scenebasename + '_room_' + str(nrooms) + '.zmap'), 'rb') as map:
                     d = round_up_data(map.read())
-                    self.ifile += d
-                    addr = self.parent.dataaddr
-                    self.parent.dataaddr += len(d)
-                    vrom = self.parent.map_vrom(addr)
-                    self.roomsaddrs += struct.pack('>II', vrom, vrom + len(d))
-                    nrooms += 1
+                self.ifile += d
+                addr = self.parent.dataaddr
+                self.parent.dataaddr += len(d)
+                vrom = self.parent.map_vrom(addr)
+                self.roomsaddrs += struct.pack('>II', vrom, vrom + len(d))
+                nrooms += 1
             except FileNotFoundError:
                 break
         assert(1 <= nrooms <= 127)
@@ -377,6 +400,19 @@ class SceneInjector(Injector):
             while scene_header_rooms(altheader):
                 altheader += 4
         print('Injecting scene ' + hex(self.ifileaddr) + ' ' + str(nrooms) + ' rooms')
+        # Title card
+        try:
+            with open(sibling(scenepath, 'title.ia8'), 'rb') as title:
+                d = round_up_data(title.read())
+            self.ifile += d
+            addr = self.parent.dataaddr
+            self.parent.dataaddr += len(d)
+            self.titlevromstart = self.parent.map_vrom(addr)
+            self.titlevromend = self.titlevromstart + len(d)
+            print('with title card size ' + hex(len(d)))
+        except FileNotFoundError:
+            self.titlevromstart, self.titlevromend = 0, 0
+            print('with no title card')
     
     def next_cmd(self):
         if self.state == 0:
@@ -384,7 +420,7 @@ class SceneInjector(Injector):
             vrom = self.parent.map_vrom(self.ifileaddr)
             return struct.pack('>5I4B60xBB', 
                 self.parent.scenetable_addr + (0x14 * self.scenenum),
-                vrom, vrom + self.scenelen, 0, 0, 
+                vrom, vrom + self.scenelen, self.titlevromstart, self.titlevromend, 
                 self.conf['unk_a'], self.conf['shader'], self.conf['unk_b'], 0, 0x14, 2)
         return None
             
